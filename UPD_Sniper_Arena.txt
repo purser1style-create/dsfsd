@@ -1,0 +1,1495 @@
+-- ════════════════════════════════════════════════════════════════
+--  PURSER HUB V1  //  SNIPER ARENA
+--  Platform Selector → Full Hub  |  One-shot inject
+--  Context : Roblox Client | Luau 5.1 | Android / iOS / Windows
+-- ════════════════════════════════════════════════════════════════
+
+-- ─── persistence / re-inject on teleport ─────────────────────────
+if _G.__PurserInjected then return end
+_G.__PurserInjected = true
+pcall(function()
+    if getscriptcontent and not _G.__PurserSource then
+        _G.__PurserSource = getscriptcontent(script)
+    end
+end)
+local function __reinject()
+    _G.__PurserInjected = nil
+    local src = _G.__PurserSource
+    if not src then return end
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.wait(2.5)
+    local fn = loadstring(src)
+    if fn then pcall(fn) end
+end
+pcall(function()
+    game:GetService("TeleportService").LocalPlayerArrivingFromTeleport:Connect(__reinject)
+end)
+local _lastPlace = game.PlaceId
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if game.PlaceId ~= _lastPlace then
+            _lastPlace = game.PlaceId
+            __reinject()
+        end
+    end
+end)
+
+-- ─── services ────────────────────────────────────────────────────
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInput     = game:GetService("VirtualInputManager")
+local TweenService     = game:GetService("TweenService")
+local Camera           = workspace.CurrentCamera
+local LocalPlayer      = Players.LocalPlayer
+
+-- wait for game
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(0.4)
+
+-- ════════════════════════════════════════════════════════════════
+--  PLATFORM SELECTOR
+-- ════════════════════════════════════════════════════════════════
+local function autoDetectPlatform()
+    if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+        return "MOBILE"
+    elseif UserInputService.GamepadEnabled and not UserInputService.MouseEnabled then
+        return "MOBILE"
+    else
+        return "PC"
+    end
+end
+
+local PlatformConfig = {
+    MOBILE = { UIPanelScale=0.78, FontScale=0.82, FOVRadius=600,
+               panelPos=UDim2.new(0,6,0,80) },
+    PC     = { UIPanelScale=1.0,  FontScale=1.0,  FOVRadius=800,
+               panelPos=UDim2.new(0,6,0,6) },
+}
+
+-- destroy stale selector
+local function cleanOld(name)
+    local old = game:GetService("CoreGui"):FindFirstChild(name)
+    if old then old:Destroy() end
+end
+cleanOld("PurserSelector_V1")
+cleanOld("PurserHub_V1")
+
+local detected = autoDetectPlatform()
+
+-- ── build selector gui ───────────────────────────────────────────
+local SelGui = Instance.new("ScreenGui")
+SelGui.Name           = "PurserSelector_V1"
+SelGui.ResetOnSpawn   = false
+SelGui.IgnoreGuiInset = true
+SelGui.DisplayOrder   = 10001
+SelGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+SelGui.Parent         = game:GetService("CoreGui")
+
+local Overlay = Instance.new("Frame")
+Overlay.Size = UDim2.new(1,0,1,0)
+Overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+Overlay.BackgroundTransparency = 0.35
+Overlay.BorderSizePixel = 0
+Overlay.ZIndex = 1
+Overlay.Parent = SelGui
+
+local CARD_W, CARD_H = 320, 300
+local Card = Instance.new("Frame")
+Card.Size = UDim2.new(0,CARD_W,0,CARD_H)
+Card.Position = UDim2.new(0.5,-CARD_W/2,0.5,-CARD_H/2)
+Card.BackgroundColor3 = Color3.fromRGB(8,8,10)
+Card.BorderSizePixel = 0
+Card.ZIndex = 2
+Card.Parent = SelGui
+Instance.new("UICorner",Card).CornerRadius = UDim.new(0,12)
+
+local CardStroke = Instance.new("UIStroke")
+CardStroke.Color = Color3.fromRGB(200,30,30)
+CardStroke.Thickness = 1.4
+CardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+CardStroke.Parent = Card
+
+-- top accent bar
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1,0,0,3)
+TopBar.BackgroundColor3 = Color3.fromRGB(200,30,30)
+TopBar.BorderSizePixel = 0
+TopBar.ZIndex = 3
+TopBar.Parent = Card
+Instance.new("UICorner",TopBar).CornerRadius = UDim.new(0,12)
+local TopFix = Instance.new("Frame")
+TopFix.Size = UDim2.new(1,0,0.5,0)
+TopFix.Position = UDim2.new(0,0,0.5,0)
+TopFix.BackgroundColor3 = Color3.fromRGB(200,30,30)
+TopFix.BorderSizePixel = 0
+TopFix.ZIndex = 3
+TopFix.Parent = TopBar
+
+local function mkLbl(text,size,color,px,py,pw,ph,bold,parent)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0,pw,0,ph)
+    l.Position = UDim2.new(0,px,0,py)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = color
+    l.TextSize = size
+    l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.TextWrapped = true
+    l.ZIndex = 4
+    l.Parent = parent or Card
+    return l
+end
+
+mkLbl("PURSER  HUB",16,Color3.fromRGB(220,220,225),0,12,CARD_W,22,true)
+mkLbl("SELECT PLATFORM TO CONTINUE",8,Color3.fromRGB(80,80,90),0,38,CARD_W,12,false)
+
+-- auto-detect badge
+local Badge = Instance.new("Frame")
+Badge.Size = UDim2.new(0,120,0,16)
+Badge.Position = UDim2.new(0.5,-60,0,56)
+Badge.BackgroundColor3 = Color3.fromRGB(18,18,24)
+Badge.BorderSizePixel = 0
+Badge.ZIndex = 3
+Badge.Parent = Card
+Instance.new("UICorner",Badge).CornerRadius = UDim.new(1,0)
+local BadgeLbl = Instance.new("TextLabel")
+BadgeLbl.Size = UDim2.new(1,0,1,0)
+BadgeLbl.BackgroundTransparency = 1
+BadgeLbl.Text = "AUTO-DETECT: "..detected
+BadgeLbl.TextColor3 = Color3.fromRGB(80,220,60)
+BadgeLbl.TextSize = 7
+BadgeLbl.Font = Enum.Font.GothamBold
+BadgeLbl.ZIndex = 4
+BadgeLbl.Parent = Badge
+
+-- platform buttons
+local BTN_DEFS = {
+    { key="MOBILE", icon="📱", label="MOBILE",       sub="Touch  •  UI 78%  •  FOV 600", x=20  },
+    { key="PC",     icon="🖥",  label="PC / DESKTOP", sub="Mouse & KB  •  UI 100%  •  FOV 800", x=170 },
+}
+local BTN_W, BTN_H = 130, 115
+local selectedKey = nil
+local btnObjects  = {}
+
+for _, def in ipairs(BTN_DEFS) do
+    local isSel = (def.key == detected)
+    local Btn = Instance.new("Frame")
+    Btn.Size = UDim2.new(0,BTN_W,0,BTN_H)
+    Btn.Position = UDim2.new(0,def.x,0,82)
+    Btn.BackgroundColor3 = isSel and Color3.fromRGB(20,8,8) or Color3.fromRGB(13,13,17)
+    Btn.BorderSizePixel = 0
+    Btn.ZIndex = 3
+    Btn.Parent = Card
+    Instance.new("UICorner",Btn).CornerRadius = UDim.new(0,8)
+
+    local BStroke = Instance.new("UIStroke")
+    BStroke.Color = isSel and Color3.fromRGB(200,30,30) or Color3.fromRGB(32,32,40)
+    BStroke.Thickness = isSel and 1.6 or 1
+    BStroke.Transparency = isSel and 0 or 0.5
+    BStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    BStroke.Parent = Btn
+
+    local IconL = Instance.new("TextLabel")
+    IconL.Size = UDim2.new(1,0,0,40)
+    IconL.Position = UDim2.new(0,0,0,10)
+    IconL.BackgroundTransparency = 1
+    IconL.Text = def.icon
+    IconL.TextSize = 28
+    IconL.Font = Enum.Font.GothamBold
+    IconL.ZIndex = 4
+    IconL.Parent = Btn
+
+    local NameL = Instance.new("TextLabel")
+    NameL.Size = UDim2.new(1,-6,0,14)
+    NameL.Position = UDim2.new(0,3,0,54)
+    NameL.BackgroundTransparency = 1
+    NameL.Text = def.label
+    NameL.TextColor3 = isSel and Color3.fromRGB(220,220,225) or Color3.fromRGB(140,140,155)
+    NameL.TextSize = 9
+    NameL.Font = Enum.Font.GothamBold
+    NameL.ZIndex = 4
+    NameL.Parent = Btn
+
+    local SubL = Instance.new("TextLabel")
+    SubL.Size = UDim2.new(1,-6,0,30)
+    SubL.Position = UDim2.new(0,3,0,70)
+    SubL.BackgroundTransparency = 1
+    SubL.Text = def.sub
+    SubL.TextColor3 = Color3.fromRGB(55,55,68)
+    SubL.TextSize = 6.5
+    SubL.Font = Enum.Font.Gotham
+    SubL.TextWrapped = true
+    SubL.ZIndex = 4
+    SubL.Parent = Btn
+
+    local Hit = Instance.new("TextButton")
+    Hit.Size = UDim2.new(1,0,1,0)
+    Hit.BackgroundTransparency = 1
+    Hit.Text = ""
+    Hit.ZIndex = 5
+    Hit.Parent = Btn
+
+    local obj = { key=def.key, frame=Btn, stroke=BStroke, nameLbl=NameL }
+    table.insert(btnObjects, obj)
+
+    Hit.MouseButton1Click:Connect(function()
+        selectedKey = def.key
+        for _, b in ipairs(btnObjects) do
+            local s = (b.key == selectedKey)
+            b.frame.BackgroundColor3 = s and Color3.fromRGB(20,8,8) or Color3.fromRGB(13,13,17)
+            b.stroke.Color       = s and Color3.fromRGB(200,30,30) or Color3.fromRGB(32,32,40)
+            b.stroke.Thickness   = s and 1.6 or 1
+            b.stroke.Transparency= s and 0   or 0.5
+            b.nameLbl.TextColor3 = s and Color3.fromRGB(220,220,225) or Color3.fromRGB(140,140,155)
+        end
+    end)
+end
+
+-- launch button
+local LaunchBtn = Instance.new("TextButton")
+LaunchBtn.Size = UDim2.new(1,-40,0,36)
+LaunchBtn.Position = UDim2.new(0,20,0,212)
+LaunchBtn.BackgroundColor3 = Color3.fromRGB(160,20,20)
+LaunchBtn.BorderSizePixel = 0
+LaunchBtn.Text = "LAUNCH  HUB"
+LaunchBtn.TextColor3 = Color3.fromRGB(240,240,240)
+LaunchBtn.TextSize = 11
+LaunchBtn.Font = Enum.Font.GothamBold
+LaunchBtn.ZIndex = 3
+LaunchBtn.Parent = Card
+Instance.new("UICorner",LaunchBtn).CornerRadius = UDim.new(0,6)
+
+local LStroke = Instance.new("UIStroke")
+LStroke.Color = Color3.fromRGB(220,40,40)
+LStroke.Thickness = 1
+LStroke.Transparency = 0.3
+LStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+LStroke.Parent = LaunchBtn
+
+local StatusL = Instance.new("TextLabel")
+StatusL.Size = UDim2.new(1,0,0,14)
+StatusL.Position = UDim2.new(0,0,0,256)
+StatusL.BackgroundTransparency = 1
+StatusL.Text = "choose a platform then hit LAUNCH"
+StatusL.TextColor3 = Color3.fromRGB(50,50,62)
+StatusL.TextSize = 7
+StatusL.Font = Enum.Font.Gotham
+StatusL.ZIndex = 3
+StatusL.Parent = Card
+
+-- RGB card pulse
+local _rgbT = 0
+local selRGBConn = RunService.RenderStepped:Connect(function(dt)
+    _rgbT = (_rgbT + dt * 0.08) % 1
+    CardStroke.Color = Color3.fromHSV(_rgbT, 0.9, 0.85)
+end)
+
+-- ── launch logic ─────────────────────────────────────────────────
+local selectorDone = false
+local function bootHub(chosen)
+    local cfg = PlatformConfig[chosen]
+    _G.__PurserPlatform    = chosen
+    _G.__PurserUIScale     = cfg.UIPanelScale
+    _G.__PurserFontScale   = cfg.FontScale
+    _G.__PurserFOVRadius   = cfg.FOVRadius
+    _G.__PurserPanelPos    = cfg.panelPos
+end
+
+LaunchBtn.MouseButton1Click:Connect(function()
+    if selectorDone then return end
+    selectorDone = true
+    local chosen = selectedKey or detected
+    StatusL.Text = "BOOTING  "..chosen.."  MODE..."
+    StatusL.TextColor3 = Color3.fromRGB(80,220,60)
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    TweenService:Create(Card,    ti, {Position=UDim2.new(0.5,-CARD_W/2,1.1,0)}):Play()
+    TweenService:Create(Overlay, ti, {BackgroundTransparency=1}):Play()
+    task.wait(0.35)
+    selRGBConn:Disconnect()
+    SelGui:Destroy()
+    bootHub(chosen)
+    -- hub boots below (defined after this block, called via coroutine)
+    _G.__PurserBootNow = true
+end)
+
+-- wait for user to press launch
+repeat task.wait(0.05) until _G.__PurserBootNow
+_G.__PurserBootNow = nil
+
+-- ════════════════════════════════════════════════════════════════
+--  HUB BOOT  — platform globals now set in _G.__Purser*
+-- ════════════════════════════════════════════════════════════════
+
+local UndoStack = {}
+local MAX_UNDO  = 10
+local function pushUndoSnapshot(settingsRef,toggleSyncFns)
+    local snapshot={Settings={},toggleStates={}}
+    for k,v in pairs(settingsRef) do snapshot.Settings[k]=v end
+    for k,entry in pairs(toggleSyncFns or {}) do
+        snapshot.toggleStates[k]=(entry.getState and entry.getState()) or false
+    end
+    table.insert(UndoStack,snapshot)
+    if #UndoStack>MAX_UNDO then table.remove(UndoStack,1) end
+end
+local function popUndoSnapshot()
+    if #UndoStack==0 then return nil end
+    return table.remove(UndoStack,#UndoStack)
+end
+
+local LANG={
+EN={title="PURSER  HUB",subtitle="V1  //  SNIPER ARENA",s_aimbot="AIMBOT",s_fire="FIRE SETTINGS",s_melee="MELEE / KNIFE",s_esp="ESP",s_misc="MISC",s_theme="UI THEME",s_lang="LANGUAGE",s_keybind="KEYBIND",s_ui="UI SCALE",autofire="AUTO FIRE",silentaim="SILENT AIM",magnet="BULLET MAGNET",multi="MULTI TARGET",wallcheck="WALL CHECK",showesp="SHOW ESP",showdist="SHOW DIST",showfov="SHOW FOV CIRCLE",fov_radius="FOV RADIUS",fire_delay="FIRE DELAY (s)",mag_radius="MAGNET RADIUS",esp_dist="ESP MAX DIST",esp_tsize="ESP TEXT SIZE",fm_label="FIRE MODE",fm_head="I  HEAD",fm_body="II  BODY RNG",theme_label="UI THEME",kb_panel="TOGGLE PANEL",kb_af="AUTO FIRE KEY",kb_sa="SILENT AIM KEY",kb_reset="RESET KEY",kb_sub="click to remap",kb_reset_sub="disables ALL",st_hook="HOOK",st_wait="WAIT",st_reset_msg="** RESET — ALL OFF **",lang_label="SELECT",lang_en="EN",lang_th="TH",esp_color="ESP COLOR",ui_scale="PANEL SCALE",font_scale="FONT SCALE",melee_snap="KNIFE HEAD SNAP",melee_wide="WIDE HITBOX",melee_speed="KNIFE SPEED",bullet_vel="BULLET VELOCITY",antiss="ANTI SCREENSHOT",quit_label="QUIT PROGRAM"},
+TH={title="เพอร์เซอร์  ฮับ",subtitle="V1  //  สไนเปอร์ อารีน่า",s_aimbot="เล็งอัตโนมัติ",s_fire="ตั้งค่าการยิง",s_melee="ประชิด / มีด",s_esp="มองทะลุ",s_misc="เบ็ดเตล็ด",s_theme="ธีม UI",s_lang="ภาษา",s_keybind="ปุ่มลัด",s_ui="ขนาด UI",autofire="ยิงอัตโนมัติ",silentaim="เล็งเงียบ",magnet="แม่เหล็กกระสุน",multi="หลายเป้าหมาย",wallcheck="ตรวจสอบกำแพง",showesp="แสดง ESP",showdist="แสดงระยะ",showfov="แสดงวง FOV",fov_radius="รัศมี FOV",fire_delay="หน่วงการยิง (วิ)",mag_radius="รัศมีแม่เหล็ก",esp_dist="ระยะ ESP สูงสุด",esp_tsize="ขนาดตัวอักษร ESP",fm_label="โหมดยิง",fm_head="I  หัว",fm_body="II  ตัวสุ่ม",theme_label="ธีม UI",kb_panel="เปิด/ปิดแผง",kb_af="ปุ่มยิงอัตโนมัติ",kb_sa="ปุ่มเล็งเงียบ",kb_reset="ปุ่มรีเซ็ต",kb_sub="คลิกเพื่อเปลี่ยน",kb_reset_sub="ปิดทุกอย่าง",st_hook="ฮุค",st_wait="รอ",st_reset_msg="** รีเซ็ต — ปิดทั้งหมด **",lang_label="เลือก",lang_en="EN",lang_th="TH",esp_color="สี ESP",ui_scale="ขนาดแผงควบคุม",font_scale="ขนาดฟอนต์",melee_snap="สแนปหัว (มีด)",melee_wide="ฮิตบ็อกซ์กว้าง",melee_speed="ความเร็วมีด",bullet_vel="ความเร็วกระสุน",antiss="กันถ่ายจอ",quit_label="ปิดโปรแกรม"},
+}
+local currentLang="EN"
+local L=LANG[currentLang]
+local LabelRefs={}
+local ESPTextSize=13
+local UIPanelScale = _G.__PurserUIScale  or 1.0
+local FontScale    = _G.__PurserFontScale or 1.0
+
+local function registerLabel(obj,key,prop) table.insert(LabelRefs,{obj=obj,key=key,prop=prop or "Text"}) end
+local function applyLanguage(langKey)
+    currentLang=langKey; L=LANG[langKey]
+    for _,ref in ipairs(LabelRefs) do
+        if ref.prop=="Text" and L[ref.key] then
+            ref.obj.Text=L[ref.key]
+            pcall(function()
+                local base=ref.obj:GetAttribute("BaseTextSize")
+                if not base then base=ref.obj.TextSize; ref.obj:SetAttribute("BaseTextSize",base) end
+                ref.obj.TextSize=math.clamp(math.floor(base*FontScale),6,32)
+            end)
+        end
+    end
+end
+local function applyFontScale(scale)
+    FontScale=math.clamp(scale,0.6,2)
+    for _,ref in ipairs(LabelRefs) do
+        if (ref.obj:IsA("TextLabel") or ref.obj:IsA("TextButton")) and ref.prop=="Text" then
+            pcall(function()
+                local base=ref.obj:GetAttribute("BaseTextSize")
+                if not base then base=ref.obj.TextSize; ref.obj:SetAttribute("BaseTextSize",base) end
+                ref.obj.TextSize=math.clamp(math.floor(base*FontScale),6,32)
+            end)
+        end
+    end
+end
+
+local THEMES={
+{name="OBSIDIAN",BG=Color3.fromRGB(4,4,5),PANEL=Color3.fromRGB(8,8,10),ROW=Color3.fromRGB(13,13,17),SUBTLE=Color3.fromRGB(22,22,28),BORDER=Color3.fromRGB(32,32,40),ACCENT=Color3.fromRGB(200,30,30),DIM=Color3.fromRGB(80,80,90),WHITE=Color3.fromRGB(220,220,225),GLOW=Color3.fromRGB(180,20,20),isRGB=false},
+{name="CHROME",BG=Color3.fromRGB(5,5,6),PANEL=Color3.fromRGB(9,9,11),ROW=Color3.fromRGB(14,14,18),SUBTLE=Color3.fromRGB(24,24,30),BORDER=Color3.fromRGB(50,50,60),ACCENT=Color3.fromRGB(180,190,200),DIM=Color3.fromRGB(80,80,90),WHITE=Color3.fromRGB(230,232,235),GLOW=Color3.fromRGB(150,160,170),isRGB=false},
+{name="TOXIC",BG=Color3.fromRGB(3,5,3),PANEL=Color3.fromRGB(6,9,6),ROW=Color3.fromRGB(10,14,10),SUBTLE=Color3.fromRGB(18,25,18),BORDER=Color3.fromRGB(30,45,30),ACCENT=Color3.fromRGB(80,220,60),DIM=Color3.fromRGB(70,90,70),WHITE=Color3.fromRGB(210,230,210),GLOW=Color3.fromRGB(60,200,40),isRGB=false},
+{name="GHOST",BG=Color3.fromRGB(4,4,5),PANEL=Color3.fromRGB(8,8,10),ROW=Color3.fromRGB(14,14,18),SUBTLE=Color3.fromRGB(24,24,30),BORDER=Color3.fromRGB(50,50,60),ACCENT=Color3.fromRGB(220,225,240),DIM=Color3.fromRGB(80,80,95),WHITE=Color3.fromRGB(240,240,248),GLOW=Color3.fromRGB(180,185,210),isRGB=false},
+{name="INFERNO",BG=Color3.fromRGB(5,3,2),PANEL=Color3.fromRGB(10,6,4),ROW=Color3.fromRGB(16,10,6),SUBTLE=Color3.fromRGB(28,18,10),BORDER=Color3.fromRGB(50,28,14),ACCENT=Color3.fromRGB(230,100,20),DIM=Color3.fromRGB(90,65,50),WHITE=Color3.fromRGB(235,220,210),GLOW=Color3.fromRGB(210,80,15),isRGB=false},
+{name="NEBULA",BG=Color3.fromRGB(3,2,8),PANEL=Color3.fromRGB(6,4,15),ROW=Color3.fromRGB(10,7,22),SUBTLE=Color3.fromRGB(18,12,38),BORDER=Color3.fromRGB(40,25,70),ACCENT=Color3.fromRGB(160,80,255),DIM=Color3.fromRGB(80,60,110),WHITE=Color3.fromRGB(220,210,240),GLOW=Color3.fromRGB(130,50,230),isRGB=false},
+{name="ARCTIC",BG=Color3.fromRGB(2,5,8),PANEL=Color3.fromRGB(4,9,15),ROW=Color3.fromRGB(7,14,22),SUBTLE=Color3.fromRGB(12,22,36),BORDER=Color3.fromRGB(20,40,65),ACCENT=Color3.fromRGB(0,180,255),DIM=Color3.fromRGB(50,90,120),WHITE=Color3.fromRGB(210,230,245),GLOW=Color3.fromRGB(0,150,220),isRGB=false},
+{name="SAKURA",BG=Color3.fromRGB(8,3,5),PANEL=Color3.fromRGB(14,5,9),ROW=Color3.fromRGB(20,8,13),SUBTLE=Color3.fromRGB(32,12,20),BORDER=Color3.fromRGB(60,20,36),ACCENT=Color3.fromRGB(255,120,160),DIM=Color3.fromRGB(100,60,75),WHITE=Color3.fromRGB(245,225,230),GLOW=Color3.fromRGB(230,80,130),isRGB=false},
+{name="GOLD",BG=Color3.fromRGB(6,5,2),PANEL=Color3.fromRGB(10,8,3),ROW=Color3.fromRGB(16,13,5),SUBTLE=Color3.fromRGB(28,22,8),BORDER=Color3.fromRGB(55,42,10),ACCENT=Color3.fromRGB(255,200,0),DIM=Color3.fromRGB(100,85,40),WHITE=Color3.fromRGB(240,235,210),GLOW=Color3.fromRGB(220,170,0),isRGB=false},
+{name="RGB",BG=Color3.fromRGB(4,4,5),PANEL=Color3.fromRGB(8,8,10),ROW=Color3.fromRGB(13,13,17),SUBTLE=Color3.fromRGB(22,22,28),BORDER=Color3.fromRGB(32,32,40),ACCENT=Color3.fromRGB(255,0,0),DIM=Color3.fromRGB(80,80,90),WHITE=Color3.fromRGB(220,220,225),GLOW=Color3.fromRGB(255,0,0),isRGB=true,rgbSpeed=0.09,glowPulseHz=0.5,glowAlphaMin=0.82,glowAlphaMax=0.93,sectionSpread=0.03,toggleSpread=0.018,sliderSpread=0.022,rgbPhase={title=0,hline=0.04,sections=0.08,stroke=0.12,glow=0.16,toggle=0.2,slider=0.26,badge=0.32,lock=0.36,border=0.42,fov=0.02}},
+}
+local currentThemeIdx=1
+local T=THEMES[currentThemeIdx]
+local _rgbTime=0
+local _rgbElapsed=0
+local _RGB_ELAPSED_CAP=628.318
+
+local function getRGBColor(offset,sat,val)
+    offset=offset or 0; sat=sat or 1; val=val or 1
+    local h=(_rgbTime+offset)%1
+    return Color3.fromHSV(h,sat,val)
+end
+local function sineAlpha(t,hz,lo,hi)
+    local s=(math.sin(t*hz*math.pi*2)+1)*0.5
+    return lo+(s*(hi-lo))
+end
+
+local Settings={
+    AimEnabled=true,WallCheck=true,
+    FOVRadius=_G.__PurserFOVRadius or 800,
+    AutoFire=false,AutoFireRate=0.01,ShowESP=true,ESPMaxDist=500,
+    ShowDist=false,ShowFOV=false,FireMode=2,MultiTarget=true,
+    BulletMagnet=true,MagnetRadius=80,MeleeSnap=true,MeleeWide=true,
+    MeleeSpeed=0.05,BulletVelMult=1,AntiScreenshot=true,ESPRainbow=false,
+}
+
+local MouseButtonNames={[Enum.UserInputType.MouseButton1]="Mouse1",[Enum.UserInputType.MouseButton2]="Mouse2",[Enum.UserInputType.MouseButton3]="Mouse3"}
+local function getMouseBtnName(uit)
+    local s=tostring(uit)
+    if s:find("MouseButton4") then return "MouseX1"
+    elseif s:find("MouseButton5") then return "MouseX2" end
+    return nil
+end
+local KeyBindings={
+    Toggle   ={kind="key",value=Enum.KeyCode.P},
+    AutoFire ={kind="key",value=Enum.KeyCode.T},
+    SilentAim={kind="key",value=Enum.KeyCode.G},
+    Reset    ={kind="key",value=Enum.KeyCode.R},
+}
+local function bindingName(b)
+    if b.kind=="key" then return b.value.Name
+    elseif b.kind=="mouse" then return MouseButtonNames[b.value] or tostring(b.value)
+    elseif b.kind=="mouseside" then return b.value end
+    return "?"
+end
+
+local DragLocked=true
+local BindingToggle,BindingAutoFire,BindingSilentAim,BindingReset=false,false,false,false
+local syncAFToggle,syncAimToggle,syncMagnetToggle,syncMultiToggle=nil,nil,nil,nil
+local syncWallToggle,syncESPToggle,syncFOVToggle,syncASSToggle=nil,nil,nil,nil
+local ToggleSyncRegistry={}
+
+local function applyAntiSS(enabled)
+    Settings.AntiScreenshot=enabled
+    pcall(function() if setscreenguirendering then setscreenguirendering(not enabled) end end)
+    pcall(function()
+        local sg=game:GetService("CoreGui"):FindFirstChild("PurserHub_V1")
+        if sg then sg.ResetOnSpawn=false; sg.DisplayOrder=(enabled and 9999) or -9999 end
+    end)
+end
+
+local FOVCircle=Drawing.new("Circle")
+FOVCircle.Visible=false; FOVCircle.Thickness=1
+FOVCircle.Radius=Settings.FOVRadius; FOVCircle.Transparency=0.35
+FOVCircle.Color=T.ACCENT; FOVCircle.Filled=false; FOVCircle.NumSides=128
+
+local ScreenGui=Instance.new("ScreenGui")
+ScreenGui.Name="PurserHub_V1"; ScreenGui.ResetOnSpawn=false
+ScreenGui.IgnoreGuiInset=true; ScreenGui.DisplayOrder=9999
+ScreenGui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent=game:GetService("CoreGui")
+
+local BASE_W,BASE_H=280,600
+
+local Glow=Instance.new("Frame")
+Glow.Size=UDim2.new(0,BASE_W+12,0,BASE_H+12)
+local startPos = _G.__PurserPanelPos or UDim2.new(0,24,0,60)
+Glow.Position=startPos
+Glow.BackgroundColor3=T.GLOW; Glow.BackgroundTransparency=0.9
+Glow.BorderSizePixel=0; Glow.ZIndex=1; Glow.Visible=false
+Glow.Parent=ScreenGui
+Instance.new("UICorner",Glow).CornerRadius=UDim.new(0,14)
+
+local Panel=Instance.new("Frame")
+Panel.Name="Panel"; Panel.Size=UDim2.new(0,BASE_W,0,BASE_H)
+Panel.Position=UDim2.new(0,6,0,6)
+Panel.BackgroundColor3=T.PANEL; Panel.BackgroundTransparency=0
+Panel.BorderSizePixel=0; Panel.Active=true; Panel.Draggable=false
+Panel.Visible=false; Panel.ZIndex=2; Panel.Parent=Glow
+Instance.new("UICorner",Panel).CornerRadius=UDim.new(0,10)
+
+local PanelStroke=Instance.new("UIStroke")
+PanelStroke.Color=T.BORDER; PanelStroke.Thickness=1
+PanelStroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+PanelStroke.Parent=Panel
+
+local function applyUIScale(scale)
+    UIPanelScale=math.clamp(scale,0.6,1.8)
+    local w=math.floor(BASE_W*UIPanelScale)
+    local h=math.floor(BASE_H*UIPanelScale)
+    Glow.Size=UDim2.new(0,w+12,0,h+12)
+    Panel.Size=UDim2.new(0,w,0,h)
+end
+-- apply platform scale immediately
+applyUIScale(UIPanelScale)
+
+local Header=Instance.new("Frame")
+Header.Size=UDim2.new(1,0,0,48); Header.BackgroundColor3=T.BG
+Header.BorderSizePixel=0; Header.ZIndex=3; Header.Parent=Panel
+Instance.new("UICorner",Header).CornerRadius=UDim.new(0,10)
+
+local HFix=Instance.new("Frame")
+HFix.Size=UDim2.new(1,0,0.5,0); HFix.Position=UDim2.new(0,0,0.5,0)
+HFix.BackgroundColor3=T.BG; HFix.BorderSizePixel=0; HFix.ZIndex=3; HFix.Parent=Header
+
+local HLine=Instance.new("Frame")
+HLine.Size=UDim2.new(1,0,0,2); HLine.Position=UDim2.new(0,0,1,-2)
+HLine.BackgroundColor3=T.ACCENT; HLine.BorderSizePixel=0; HLine.ZIndex=5; HLine.Parent=Header
+
+local TitleLbl=Instance.new("TextLabel")
+TitleLbl.Size=UDim2.new(0,160,0,18); TitleLbl.Position=UDim2.new(0,12,0,8)
+TitleLbl.BackgroundTransparency=1; TitleLbl.Text=L.title
+TitleLbl.TextColor3=T.WHITE; TitleLbl.TextSize=13; TitleLbl.Font=Enum.Font.GothamBold
+TitleLbl.TextXAlignment=Enum.TextXAlignment.Left; TitleLbl.ZIndex=5; TitleLbl.Parent=Header
+registerLabel(TitleLbl,"title")
+
+local SubLbl=Instance.new("TextLabel")
+SubLbl.Size=UDim2.new(0,200,0,10); SubLbl.Position=UDim2.new(0,12,0,28)
+SubLbl.BackgroundTransparency=1; SubLbl.Text=L.subtitle
+SubLbl.TextColor3=T.DIM; SubLbl.TextSize=7; SubLbl.Font=Enum.Font.GothamMedium
+SubLbl.TextXAlignment=Enum.TextXAlignment.Left; SubLbl.ZIndex=5; SubLbl.Parent=Header
+registerLabel(SubLbl,"subtitle")
+
+-- platform badge in header
+local PlatBadge=Instance.new("Frame")
+PlatBadge.Size=UDim2.new(0,42,0,13)
+PlatBadge.Position=UDim2.new(1,-148,0.5,-6)
+PlatBadge.BackgroundColor3=Color3.fromRGB(18,18,24)
+PlatBadge.BorderSizePixel=0; PlatBadge.ZIndex=6; PlatBadge.Parent=Header
+Instance.new("UICorner",PlatBadge).CornerRadius=UDim.new(1,0)
+local PlatLbl=Instance.new("TextLabel")
+PlatLbl.Size=UDim2.new(1,0,1,0)
+PlatLbl.BackgroundTransparency=1
+PlatLbl.Text=(_G.__PurserPlatform=="MOBILE" and "📱 MOB" or "🖥 PC")
+PlatLbl.TextColor3=Color3.fromRGB(80,220,60)
+PlatLbl.TextSize=6; PlatLbl.Font=Enum.Font.GothamBold
+PlatLbl.ZIndex=7; PlatLbl.Parent=PlatBadge
+
+local VIPBadge=Instance.new("Frame")
+VIPBadge.Size=UDim2.new(0,30,0,14); VIPBadge.Position=UDim2.new(1,-96,0.5,-7)
+VIPBadge.BackgroundColor3=T.ACCENT; VIPBadge.BorderSizePixel=0; VIPBadge.ZIndex=6; VIPBadge.Parent=Header
+Instance.new("UICorner",VIPBadge).CornerRadius=UDim.new(0,2)
+local VIPLbl=Instance.new("TextLabel")
+VIPLbl.Size=UDim2.new(1,0,1,0); VIPLbl.BackgroundTransparency=1
+VIPLbl.Text="VIP"; VIPLbl.TextColor3=T.BG; VIPLbl.TextSize=7
+VIPLbl.Font=Enum.Font.GothamBold; VIPLbl.ZIndex=7; VIPLbl.Parent=VIPBadge
+
+local LockBtn=Instance.new("TextButton")
+LockBtn.Size=UDim2.new(0,20,0,20); LockBtn.Position=UDim2.new(1,-54,0.5,-10)
+LockBtn.BackgroundColor3=T.SUBTLE; LockBtn.BorderSizePixel=0
+LockBtn.Text=""; LockBtn.ZIndex=6; LockBtn.Parent=Header
+Instance.new("UICorner",LockBtn).CornerRadius=UDim.new(0,3)
+local lkS=Instance.new("UIStroke"); lkS.Color=T.ACCENT; lkS.Thickness=1; lkS.Transparency=0.4; lkS.Parent=LockBtn
+
+local LockIconBody=Instance.new("Frame")
+LockIconBody.Size=UDim2.new(0,10,0,7); LockIconBody.Position=UDim2.new(0.5,-5,1,-9)
+LockIconBody.BackgroundColor3=T.ACCENT; LockIconBody.BorderSizePixel=0; LockIconBody.ZIndex=7; LockIconBody.Parent=LockBtn
+Instance.new("UICorner",LockIconBody).CornerRadius=UDim.new(0,2)
+
+local LockIconShackle=Instance.new("Frame")
+LockIconShackle.Size=UDim2.new(0,8,0,6); LockIconShackle.Position=UDim2.new(0.5,-4,0,2)
+LockIconShackle.BackgroundTransparency=1; LockIconShackle.BorderSizePixel=0; LockIconShackle.ZIndex=7; LockIconShackle.Parent=LockBtn
+local LockShackleStroke=Instance.new("UIStroke")
+LockShackleStroke.Color=T.ACCENT; LockShackleStroke.Thickness=1.8
+LockShackleStroke.LineJoinMode=Enum.LineJoinMode.Round; LockShackleStroke.Parent=LockIconShackle
+Instance.new("UICorner",LockIconShackle).CornerRadius=UDim.new(0,4)
+
+local CloseBtn=Instance.new("TextButton")
+CloseBtn.Size=UDim2.new(0,20,0,20); CloseBtn.Position=UDim2.new(1,-28,0.5,-10)
+CloseBtn.BackgroundColor3=T.SUBTLE; CloseBtn.BorderSizePixel=0
+CloseBtn.Text=""; CloseBtn.ZIndex=6; CloseBtn.Parent=Header
+Instance.new("UICorner",CloseBtn).CornerRadius=UDim.new(0,3)
+local cS2=Instance.new("UIStroke"); cS2.Color=T.ACCENT; cS2.Thickness=1; cS2.Transparency=0.4; cS2.Parent=CloseBtn
+
+local CloseLine1=Instance.new("Frame")
+CloseLine1.Size=UDim2.new(0,10,0,2); CloseLine1.Position=UDim2.new(0.5,-5,0.5,-1)
+CloseLine1.BackgroundColor3=T.ACCENT; CloseLine1.BorderSizePixel=0; CloseLine1.Rotation=45; CloseLine1.ZIndex=7; CloseLine1.Parent=CloseBtn
+local CloseLine2=Instance.new("Frame")
+CloseLine2.Size=UDim2.new(0,10,0,2); CloseLine2.Position=UDim2.new(0.5,-5,0.5,-1)
+CloseLine2.BackgroundColor3=T.ACCENT; CloseLine2.BorderSizePixel=0; CloseLine2.Rotation=-45; CloseLine2.ZIndex=7; CloseLine2.Parent=CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function() Panel.Visible=false; Glow.Visible=false end)
+
+local Scroll=Instance.new("ScrollingFrame")
+Scroll.Size=UDim2.new(1,0,1,-50); Scroll.Position=UDim2.new(0,0,0,50)
+Scroll.BackgroundTransparency=1; Scroll.BorderSizePixel=0
+Scroll.ScrollBarThickness=2; Scroll.ScrollBarImageColor3=T.ACCENT
+Scroll.CanvasSize=UDim2.new(0,0,0,0); Scroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+Scroll.ZIndex=3; Scroll.Parent=Panel
+
+local LL=Instance.new("UIListLayout")
+LL.SortOrder=Enum.SortOrder.LayoutOrder; LL.Padding=UDim.new(0,2); LL.Parent=Scroll
+local LP=Instance.new("UIPadding")
+LP.PaddingLeft=UDim.new(0,7); LP.PaddingRight=UDim.new(0,7)
+LP.PaddingTop=UDim.new(0,6); LP.PaddingBottom=UDim.new(0,6); LP.Parent=Scroll
+
+local ThemeRefs={rows={},sectionBars={},sectionLbls={},dividers={},accentBG={},accentText={},accentStroke={},dimText={},subtleBG={},bgColor={},borderStroke={},toggleWidgets={},sliderWidgets={},badgeBG={},badgeText={},lockAccentBG={},lockAccentStr={},closeAccentBG={}}
+local function regA(obj,prop) if prop=="text" then table.insert(ThemeRefs.accentText,obj) elseif prop=="stroke" then table.insert(ThemeRefs.accentStroke,obj) else table.insert(ThemeRefs.accentBG,obj) end end
+local function regD(obj) table.insert(ThemeRefs.dimText,obj) end
+local function regSub(obj) table.insert(ThemeRefs.subtleBG,obj) end
+local function regBorder(obj) table.insert(ThemeRefs.borderStroke,obj) end
+local function regBadge(bg,txt) table.insert(ThemeRefs.badgeBG,bg); table.insert(ThemeRefs.badgeText,txt) end
+
+table.insert(ThemeRefs.accentBG,HLine)
+table.insert(ThemeRefs.accentText,TitleLbl)
+regBadge(VIPBadge,VIPLbl)
+regA(lkS,"stroke"); regA(cS2,"stroke")
+table.insert(ThemeRefs.subtleBG,LockBtn); table.insert(ThemeRefs.subtleBG,CloseBtn)
+table.insert(ThemeRefs.lockAccentBG,LockIconBody); table.insert(ThemeRefs.lockAccentStr,LockShackleStroke)
+table.insert(ThemeRefs.lockAccentBG,CloseLine1); table.insert(ThemeRefs.lockAccentBG,CloseLine2)
+
+local FireModeBtn1,FireModeBtn2
+local function applyTheme(idx)
+    idx=math.clamp(idx,1,#THEMES); currentThemeIdx=idx; T=THEMES[idx]
+    Panel.BackgroundColor3=T.PANEL; Glow.BackgroundColor3=T.GLOW; PanelStroke.Color=T.BORDER
+    Header.BackgroundColor3=T.BG; HFix.BackgroundColor3=T.BG
+    TitleLbl.TextColor3=T.WHITE; SubLbl.TextColor3=T.DIM
+    Scroll.ScrollBarImageColor3=T.ACCENT; FOVCircle.Color=T.ACCENT; HLine.BackgroundColor3=T.ACCENT
+    for _,b in ipairs(ThemeRefs.sectionBars) do b.BackgroundColor3=T.ACCENT end
+    for _,l in ipairs(ThemeRefs.sectionLbls) do l.TextColor3=T.ACCENT end
+    for _,d in ipairs(ThemeRefs.dividers) do d.BackgroundColor3=T.BORDER end
+    for _,r in ipairs(ThemeRefs.rows) do r.BackgroundColor3=T.ROW end
+    for _,o in ipairs(ThemeRefs.accentBG) do o.BackgroundColor3=T.ACCENT end
+    for _,o in ipairs(ThemeRefs.accentText) do o.TextColor3=T.ACCENT end
+    for _,o in ipairs(ThemeRefs.accentStroke) do o.Color=T.ACCENT end
+    for _,o in ipairs(ThemeRefs.dimText) do o.TextColor3=T.DIM end
+    for _,o in ipairs(ThemeRefs.subtleBG) do o.BackgroundColor3=T.SUBTLE end
+    for _,o in ipairs(ThemeRefs.borderStroke) do o.Color=T.BORDER end
+    for _,o in ipairs(ThemeRefs.badgeBG) do o.BackgroundColor3=T.ACCENT end
+    for _,o in ipairs(ThemeRefs.badgeText) do o.TextColor3=T.BG end
+    for _,o in ipairs(ThemeRefs.lockAccentBG) do o.BackgroundColor3=T.ACCENT end
+    for _,o in ipairs(ThemeRefs.lockAccentStr) do o.Color=T.ACCENT end
+    lkS.Color=T.ACCENT; cS2.Color=T.ACCENT
+    LockBtn.BackgroundColor3=T.SUBTLE; CloseBtn.BackgroundColor3=T.SUBTLE
+    for _,tw in ipairs(ThemeRefs.toggleWidgets) do
+        local v=tw.getState()
+        tw.strip.BackgroundColor3=(v and T.ACCENT) or T.SUBTLE
+        tw.pill.BackgroundColor3=(v and T.ACCENT) or T.SUBTLE
+        tw.pillStroke.Color=(v and T.ACCENT) or T.BORDER
+        tw.mainLbl.TextColor3=T.WHITE; tw.rowStroke.Color=T.BORDER
+    end
+    for _,sw in ipairs(ThemeRefs.sliderWidgets) do
+        sw.fill.BackgroundColor3=T.ACCENT; sw.valLbl.TextColor3=T.ACCENT
+        sw.thumbStroke.Color=T.ACCENT; sw.track.BackgroundColor3=T.SUBTLE
+        sw.lbl.TextColor3=T.WHITE; sw.rowStroke.Color=T.BORDER
+    end
+    if FireModeBtn1 and FireModeBtn2 then
+        local fm=Settings.FireMode
+        FireModeBtn1.BackgroundColor3=((fm==1) and T.ACCENT) or T.SUBTLE
+        FireModeBtn1.TextColor3=((fm==1) and T.BG) or T.DIM
+        FireModeBtn2.BackgroundColor3=((fm==2) and T.ACCENT) or T.SUBTLE
+        FireModeBtn2.TextColor3=((fm==2) and T.BG) or T.DIM
+    end
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    local safeDt=math.min(dt,0.05)
+    _rgbTime=(_rgbTime+(safeDt*(THEMES[currentThemeIdx].rgbSpeed or 0.09)))%1
+    _rgbElapsed=(_rgbElapsed+safeDt)%_RGB_ELAPSED_CAP
+    if _G.__PurserSwatchUpdaters then
+        for _,fn in ipairs(_G.__PurserSwatchUpdaters) do pcall(fn) end
+    end
+    local theme=THEMES[currentThemeIdx]
+    if not theme.isRGB then return end
+    local ph=theme.rgbPhase or {}
+    local ss=theme.sectionSpread or 0.055
+    local ts=theme.toggleSpread or 0.03
+    local ls=theme.sliderSpread or 0.04
+    local function hc(offset,sat,val) return Color3.fromHSV((_rgbTime+(offset or 0))%1,sat or 1,val or 1) end
+    local glowAlpha=sineAlpha(_rgbElapsed,theme.glowPulseHz or 1.1,theme.glowAlphaMin or 0.78,theme.glowAlphaMax or 0.95)
+    Glow.BackgroundColor3=hc(ph.glow or 0.33,0.9,1); Glow.BackgroundTransparency=glowAlpha
+    PanelStroke.Color=hc(ph.stroke or 0.25,0.85,0.8)
+    PanelStroke.Thickness=1+sineAlpha(_rgbElapsed,0.7,0,0.5)
+    HLine.BackgroundColor3=hc(ph.hline or 0.08)
+    FOVCircle.Color=hc(ph.fov or 0.05,0.85,1)
+    Scroll.ScrollBarImageColor3=hc(ph.hline or 0.08,0.9,1)
+    TitleLbl.TextColor3=hc(ph.title or 0,1,1)
+    for i,bar in ipairs(ThemeRefs.sectionBars) do bar.BackgroundColor3=hc((ph.sections or 0.15)+((i-1)*ss)) end
+    for i,lbl in ipairs(ThemeRefs.sectionLbls) do lbl.TextColor3=hc((ph.sections or 0.15)+((i-1)*ss),0.65,1) end
+    for i,div in ipairs(ThemeRefs.dividers) do div.BackgroundColor3=hc((ph.border or 0.7)+((i-1)*0.025),0.55,0.45) end
+    local accentMain=hc(ph.title or 0); T.ACCENT=accentMain; T.GLOW=accentMain
+    for _,o in ipairs(ThemeRefs.accentBG) do o.BackgroundColor3=accentMain end
+    for _,o in ipairs(ThemeRefs.accentText) do o.TextColor3=accentMain end
+    for _,o in ipairs(ThemeRefs.accentStroke) do o.Color=accentMain end
+    local badgeC=hc(ph.badge or 0.6,0.9,1)
+    for _,o in ipairs(ThemeRefs.badgeBG) do o.BackgroundColor3=badgeC end
+    for _,o in ipairs(ThemeRefs.badgeText) do o.TextColor3=Color3.new(0,0,0) end
+    local lockC=hc(ph.lock or 0.68,1,1)
+    for _,o in ipairs(ThemeRefs.lockAccentBG) do o.BackgroundColor3=lockC end
+    for _,o in ipairs(ThemeRefs.lockAccentStr) do o.Color=lockC end
+    lkS.Color=lockC; cS2.Color=lockC
+    for i,tw in ipairs(ThemeRefs.toggleWidgets) do
+        local v=tw.getState()
+        if v then
+            local tc=hc((ph.toggle or 0.41)+((i-1)*ts))
+            tw.strip.BackgroundColor3=tc; tw.pill.BackgroundColor3=tc; tw.pillStroke.Color=tc
+        else
+            tw.strip.BackgroundColor3=Color3.fromRGB(22,22,28)
+            tw.pill.BackgroundColor3=Color3.fromRGB(22,22,28)
+            tw.pillStroke.Color=Color3.fromRGB(50,50,65)
+        end
+        tw.mainLbl.TextColor3=Color3.fromRGB(220,220,225)
+        tw.rowStroke.Color=hc((ph.border or 0.7)+((i-1)*0.012),0.4,0.4)
+    end
+    for i,sw in ipairs(ThemeRefs.sliderWidgets) do
+        local sc=hc((ph.slider or 0.5)+((i-1)*ls))
+        sw.fill.BackgroundColor3=sc; sw.valLbl.TextColor3=sc; sw.thumbStroke.Color=sc
+        sw.lbl.TextColor3=Color3.fromRGB(220,220,225)
+        sw.rowStroke.Color=hc((ph.border or 0.7)+((i-1)*0.018),0.35,0.4)
+    end
+    if FireModeBtn1 and FireModeBtn2 then
+        local fm=Settings.FireMode; local fmc=hc(ph.badge or 0.6)
+        FireModeBtn1.BackgroundColor3=((fm==1) and fmc) or Color3.fromRGB(22,22,28)
+        FireModeBtn1.TextColor3=((fm==1) and Color3.new(0,0,0)) or Color3.fromRGB(80,80,90)
+        FireModeBtn2.BackgroundColor3=((fm==2) and fmc) or Color3.fromRGB(22,22,28)
+        FireModeBtn2.TextColor3=((fm==2) and Color3.new(0,0,0)) or Color3.fromRGB(80,80,90)
+    end
+end)
+
+local function makeSection(textKey)
+    local row=Instance.new("Frame")
+    row.Size=UDim2.new(1,0,0,22); row.BackgroundTransparency=1; row.ZIndex=3; row.Parent=Scroll
+    local bar=Instance.new("Frame")
+    bar.Size=UDim2.new(0,2,0,13); bar.Position=UDim2.new(0,0,0.5,-6)
+    bar.BackgroundColor3=T.ACCENT; bar.BorderSizePixel=0; bar.ZIndex=4; bar.Parent=row
+    Instance.new("UICorner",bar).CornerRadius=UDim.new(1,0)
+    table.insert(ThemeRefs.sectionBars,bar)
+    local lbl=Instance.new("TextLabel")
+    lbl.Size=UDim2.new(1,-10,1,0); lbl.Position=UDim2.new(0,9,0,0)
+    lbl.BackgroundTransparency=1; lbl.Text=L[textKey] or textKey
+    lbl.TextColor3=T.ACCENT; lbl.TextSize=8; lbl.Font=Enum.Font.GothamBold
+    lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=4; lbl.Parent=row
+    table.insert(ThemeRefs.sectionLbls,lbl); registerLabel(lbl,textKey)
+    local div=Instance.new("Frame")
+    div.Size=UDim2.new(1,0,0,1); div.Position=UDim2.new(0,0,1,-1)
+    div.BackgroundColor3=T.BORDER; div.BorderSizePixel=0; div.ZIndex=4; div.Parent=row
+    table.insert(ThemeRefs.dividers,div)
+end
+
+local function makeToggle(labelKey,default,onChange)
+    local row=Instance.new("Frame")
+    row.Size=UDim2.new(1,0,0,32); row.BackgroundColor3=T.ROW
+    row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5)
+    table.insert(ThemeRefs.rows,row)
+    local rowStroke=Instance.new("UIStroke")
+    rowStroke.Color=T.BORDER; rowStroke.Thickness=1
+    rowStroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rowStroke.Parent=row
+    local strip=Instance.new("Frame")
+    strip.Size=UDim2.new(0,2,0.5,0); strip.Position=UDim2.new(0,0,0.25,0)
+    strip.BackgroundColor3=(default and T.ACCENT) or T.SUBTLE
+    strip.BorderSizePixel=0; strip.ZIndex=4; strip.Parent=row
+    Instance.new("UICorner",strip).CornerRadius=UDim.new(1,0)
+    local mainLbl=Instance.new("TextLabel")
+    mainLbl.Size=UDim2.new(1,-58,1,0); mainLbl.Position=UDim2.new(0,10,0,0)
+    mainLbl.BackgroundTransparency=1; mainLbl.Text=L[labelKey] or labelKey
+    mainLbl.TextColor3=T.WHITE; mainLbl.TextSize=10; mainLbl.Font=Enum.Font.GothamBold
+    mainLbl.TextXAlignment=Enum.TextXAlignment.Left; mainLbl.ZIndex=4; mainLbl.Parent=row
+    registerLabel(mainLbl,labelKey)
+    local pill=Instance.new("Frame")
+    pill.Size=UDim2.new(0,38,0,18); pill.Position=UDim2.new(1,-46,0.5,-9)
+    pill.BackgroundColor3=(default and T.ACCENT) or T.SUBTLE
+    pill.BorderSizePixel=0; pill.ZIndex=4; pill.Parent=row
+    Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
+    local pillStroke=Instance.new("UIStroke")
+    pillStroke.Color=(default and T.ACCENT) or T.BORDER
+    pillStroke.Thickness=1; pillStroke.Transparency=0.3; pillStroke.Parent=pill
+    local dot=Instance.new("Frame")
+    dot.Size=UDim2.new(0,13,0,13)
+    dot.Position=(default and UDim2.new(1,-16,0.5,-6)) or UDim2.new(0,3,0.5,-6)
+    dot.BackgroundColor3=T.WHITE; dot.BorderSizePixel=0; dot.ZIndex=5; dot.Parent=pill
+    Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
+    local state=default
+    local hitbox=Instance.new("TextButton")
+    hitbox.Size=UDim2.new(1,0,1,0); hitbox.BackgroundTransparency=1
+    hitbox.Text=""; hitbox.ZIndex=6; hitbox.Parent=row
+    local function refresh(v)
+        state=v; local ac=T.ACCENT
+        pill.BackgroundColor3=(v and ac) or T.SUBTLE
+        pillStroke.Color=(v and ac) or T.BORDER
+        dot.Position=(v and UDim2.new(1,-16,0.5,-6)) or UDim2.new(0,3,0.5,-6)
+        strip.BackgroundColor3=(v and ac) or T.SUBTLE
+    end
+    hitbox.MouseButton1Click:Connect(function() refresh(not state); onChange(state) end)
+    local entry={strip=strip,pill=pill,pillStroke=pillStroke,mainLbl=mainLbl,rowStroke=rowStroke,getState=function() return state end}
+    table.insert(ThemeRefs.toggleWidgets,entry)
+    return row,function(v) refresh(v); onChange(v) end
+end
+
+local function makeSlider(labelKey,min,max,default,fmtFn,onChange)
+    local row=Instance.new("Frame")
+    row.Size=UDim2.new(1,0,0,44); row.BackgroundColor3=T.ROW
+    row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5)
+    table.insert(ThemeRefs.rows,row)
+    local rowStroke=Instance.new("UIStroke")
+    rowStroke.Color=T.BORDER; rowStroke.Thickness=1
+    rowStroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rowStroke.Parent=row
+    local lbl=Instance.new("TextLabel")
+    lbl.Size=UDim2.new(0.6,0,0,16); lbl.Position=UDim2.new(0,10,0,6)
+    lbl.BackgroundTransparency=1; lbl.Text=L[labelKey] or labelKey
+    lbl.TextColor3=T.WHITE; lbl.TextSize=10; lbl.Font=Enum.Font.GothamBold
+    lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=4; lbl.Parent=row
+    registerLabel(lbl,labelKey)
+    local valLbl=Instance.new("TextLabel")
+    valLbl.Size=UDim2.new(0.35,0,0,16); valLbl.Position=UDim2.new(0.65,0,0,6)
+    valLbl.BackgroundTransparency=1; valLbl.Text=fmtFn(default)
+    valLbl.TextColor3=T.ACCENT; valLbl.TextSize=10; valLbl.Font=Enum.Font.GothamBold
+    valLbl.TextXAlignment=Enum.TextXAlignment.Right; valLbl.ZIndex=4; valLbl.Parent=row
+    local track=Instance.new("Frame")
+    track.Size=UDim2.new(1,-20,0,3); track.Position=UDim2.new(0,10,0,30)
+    track.BackgroundColor3=T.SUBTLE; track.BorderSizePixel=0; track.ZIndex=4; track.Parent=row
+    Instance.new("UICorner",track).CornerRadius=UDim.new(1,0)
+    local initT=(default-min)/(max-min)
+    local fill=Instance.new("Frame")
+    fill.Size=UDim2.new(initT,0,1,0); fill.BackgroundColor3=T.ACCENT
+    fill.BorderSizePixel=0; fill.ZIndex=5; fill.Parent=track
+    Instance.new("UICorner",fill).CornerRadius=UDim.new(1,0)
+    local thumb=Instance.new("Frame")
+    thumb.Size=UDim2.new(0,10,0,10); thumb.Position=UDim2.new(initT,-5,0.5,-5)
+    thumb.BackgroundColor3=T.WHITE; thumb.BorderSizePixel=0; thumb.ZIndex=6; thumb.Parent=track
+    Instance.new("UICorner",thumb).CornerRadius=UDim.new(1,0)
+    local thumbStroke=Instance.new("UIStroke")
+    thumbStroke.Color=T.ACCENT; thumbStroke.Thickness=1.5; thumbStroke.Parent=thumb
+    local dragging=false
+    thumb.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true end end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+    RunService.RenderStepped:Connect(function()
+        if not dragging then return end
+        local mouse=UserInputService:GetMouseLocation()
+        local abs=track.AbsolutePosition; local sz=track.AbsoluteSize
+        local t=math.clamp((mouse.X-abs.X)/sz.X,0,1)
+        fill.Size=UDim2.new(t,0,1,0); thumb.Position=UDim2.new(t,-5,0.5,-5)
+        valLbl.Text=fmtFn(min+(t*(max-min))); onChange(min+(t*(max-min)))
+    end)
+    table.insert(ThemeRefs.sliderWidgets,{fill=fill,valLbl=valLbl,thumbStroke=thumbStroke,track=track,lbl=lbl,rowStroke=rowStroke})
+end
+
+local function makeStepperRow(labelKey,initVal,fmtFn,onMinus,onPlus)
+    local row=Instance.new("Frame")
+    row.Size=UDim2.new(1,0,0,32); row.BackgroundColor3=T.ROW
+    row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5)
+    table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1
+    rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row
+    table.insert(ThemeRefs.borderStroke,rS)
+    local lbl=Instance.new("TextLabel")
+    lbl.Size=UDim2.new(0.42,0,1,0); lbl.Position=UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency=1; lbl.Text=L[labelKey] or labelKey
+    lbl.TextColor3=T.WHITE; lbl.TextSize=10; lbl.Font=Enum.Font.GothamBold
+    lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.ZIndex=4; lbl.Parent=row
+    registerLabel(lbl,labelKey)
+    table.insert(ThemeRefs.toggleWidgets,{strip=Instance.new("Frame"),pill=Instance.new("Frame"),pillStroke=Instance.new("UIStroke"),mainLbl=lbl,rowStroke=rS,getState=function() return false end})
+    local valLbl=Instance.new("TextLabel")
+    valLbl.Size=UDim2.new(0,30,1,0); valLbl.Position=UDim2.new(1,-78,0,0)
+    valLbl.BackgroundTransparency=1; valLbl.Text=fmtFn(initVal)
+    valLbl.TextColor3=T.ACCENT; valLbl.TextSize=10; valLbl.Font=Enum.Font.GothamBold
+    valLbl.ZIndex=5; valLbl.Parent=row
+    table.insert(ThemeRefs.accentText,valLbl)
+    local minusBtn=Instance.new("TextButton")
+    minusBtn.Size=UDim2.new(0,24,0,20); minusBtn.Position=UDim2.new(1,-112,0.5,-10)
+    minusBtn.BackgroundColor3=T.SUBTLE; minusBtn.BorderSizePixel=0
+    minusBtn.Text="-"; minusBtn.TextColor3=T.WHITE; minusBtn.TextSize=13
+    minusBtn.Font=Enum.Font.GothamBold; minusBtn.ZIndex=5; minusBtn.Parent=row
+    Instance.new("UICorner",minusBtn).CornerRadius=UDim.new(0,4)
+    table.insert(ThemeRefs.subtleBG,minusBtn)
+    local plusBtn=Instance.new("TextButton")
+    plusBtn.Size=UDim2.new(0,24,0,20); plusBtn.Position=UDim2.new(1,-38,0.5,-10)
+    plusBtn.BackgroundColor3=T.SUBTLE; plusBtn.BorderSizePixel=0
+    plusBtn.Text="+"; plusBtn.TextColor3=T.WHITE; plusBtn.TextSize=13
+    plusBtn.Font=Enum.Font.GothamBold; plusBtn.ZIndex=5; plusBtn.Parent=row
+    Instance.new("UICorner",plusBtn).CornerRadius=UDim.new(0,4)
+    table.insert(ThemeRefs.subtleBG,plusBtn)
+    minusBtn.MouseButton1Click:Connect(function() valLbl.Text=fmtFn(onMinus()) end)
+    plusBtn.MouseButton1Click:Connect(function() valLbl.Text=fmtFn(onPlus()) end)
+    return valLbl
+end
+
+-- ── build sections ────────────────────────────────────────────────
+local espPool={}
+
+makeSection("s_misc")
+local _,_syncASSToggle=makeToggle("antiss",true,function(v) applyAntiSS(v) end)
+syncASSToggle=_syncASSToggle; applyAntiSS(true)
+
+do
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,32); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local qLbl=Instance.new("TextLabel"); qLbl.Size=UDim2.new(0.6,0,1,0); qLbl.Position=UDim2.new(0,10,0,0); qLbl.BackgroundTransparency=1; qLbl.Text=L.quit_label; qLbl.TextColor3=T.WHITE; qLbl.TextSize=10; qLbl.Font=Enum.Font.GothamBold; qLbl.TextXAlignment=Enum.TextXAlignment.Left; qLbl.ZIndex=4; qLbl.Parent=row
+    registerLabel(qLbl,"quit_label")
+    table.insert(ThemeRefs.toggleWidgets,{strip=Instance.new("Frame"),pill=Instance.new("Frame"),pillStroke=Instance.new("UIStroke"),mainLbl=qLbl,rowStroke=rS,getState=function() return false end})
+    local qBtn=Instance.new("TextButton"); qBtn.Size=UDim2.new(0,52,0,20); qBtn.Position=UDim2.new(1,-60,0.5,-10); qBtn.BackgroundColor3=Color3.fromRGB(160,20,20); qBtn.BorderSizePixel=0; qBtn.Text="QUIT"; qBtn.TextColor3=Color3.fromRGB(240,240,240); qBtn.TextSize=8; qBtn.Font=Enum.Font.GothamBold; qBtn.ZIndex=5; qBtn.Parent=row
+    Instance.new("UICorner",qBtn).CornerRadius=UDim.new(0,4)
+    local qS=Instance.new("UIStroke"); qS.Color=Color3.fromRGB(220,40,40); qS.Thickness=1; qS.Transparency=0.3; qS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; qS.Parent=qBtn
+    qBtn.MouseButton1Click:Connect(function()
+        Settings.AimEnabled=false; Settings.AutoFire=false; Settings.BulletMagnet=false; Settings.MultiTarget=false; Settings.ShowFOV=false; Settings.ShowESP=false; Settings.AntiScreenshot=false
+        if syncAimToggle then syncAimToggle(false) end; if syncAFToggle then syncAFToggle(false) end
+        if syncMagnetToggle then syncMagnetToggle(false) end; if syncMultiToggle then syncMultiToggle(false) end
+        if syncFOVToggle then syncFOVToggle(false) end; if syncESPToggle then syncESPToggle(false) end; if syncASSToggle then syncASSToggle(false) end
+        for _,obj in pairs(espPool) do
+            if obj.hl and obj.hl.Parent then pcall(function() obj.hl.FillTransparency=1; obj.hl.OutlineTransparency=1 end); pcall(function() obj.hl:Destroy() end) end
+            if obj.bb and obj.bb.Parent then pcall(function() obj.bb:Destroy() end) end
+            if obj.conn then obj.conn:Disconnect() end; if obj.charConn then obj.charConn:Disconnect() end; if obj.dieConn then obj.dieConn:Disconnect() end
+        end
+        pcall(function() FOVCircle:Remove() end)
+        pcall(function() if setscreenguirendering then setscreenguirendering(false) end end)
+        ScreenGui:Destroy(); _G.__PurserInjected=nil; _G.__PurserSource=nil
+    end)
+end
+
+makeSection("s_fire")
+do
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,42); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local tLbl=Instance.new("TextLabel"); tLbl.Size=UDim2.new(1,-12,0,13); tLbl.Position=UDim2.new(0,10,0,4); tLbl.BackgroundTransparency=1; tLbl.Text=L.fm_label; tLbl.TextColor3=T.DIM; tLbl.TextSize=8; tLbl.Font=Enum.Font.GothamBold; tLbl.TextXAlignment=Enum.TextXAlignment.Left; tLbl.ZIndex=4; tLbl.Parent=row
+    table.insert(ThemeRefs.dimText,tLbl); registerLabel(tLbl,"fm_label")
+    table.insert(ThemeRefs.toggleWidgets,{strip=Instance.new("Frame"),pill=Instance.new("Frame"),pillStroke=Instance.new("UIStroke"),mainLbl=tLbl,rowStroke=rS,getState=function() return false end})
+    local function modeBtn(labelKey,x,y,w,idx)
+        local btn=Instance.new("TextButton"); btn.Size=UDim2.new(0,w,0,19); btn.Position=UDim2.new(0,x,0,y)
+        btn.BackgroundColor3=((Settings.FireMode==idx) and T.ACCENT) or T.SUBTLE; btn.BorderSizePixel=0
+        btn.Text=L[labelKey] or labelKey; btn.TextColor3=((Settings.FireMode==idx) and T.BG) or T.DIM
+        btn.TextSize=8; btn.Font=Enum.Font.GothamBold; btn.ZIndex=5; btn.Parent=row
+        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,4); registerLabel(btn,labelKey); return btn
+    end
+    FireModeBtn1=modeBtn("fm_head",10,20,116,1); FireModeBtn2=modeBtn("fm_body",132,20,116,2)
+    local function refModeButtons()
+        local fm=Settings.FireMode; local ac=T.ACCENT
+        FireModeBtn1.BackgroundColor3=((fm==1) and ac) or T.SUBTLE; FireModeBtn1.TextColor3=((fm==1) and T.BG) or T.DIM
+        FireModeBtn2.BackgroundColor3=((fm==2) and ac) or T.SUBTLE; FireModeBtn2.TextColor3=((fm==2) and T.BG) or T.DIM
+    end
+    FireModeBtn1.MouseButton1Click:Connect(function() Settings.FireMode=1; refModeButtons() end)
+    FireModeBtn2.MouseButton1Click:Connect(function() Settings.FireMode=2; refModeButtons() end)
+end
+
+makeSection("s_aimbot")
+local _,_syncAFToggle=makeToggle("autofire",false,function(v) Settings.AutoFire=v end)
+local _,_syncAimToggle=makeToggle("silentaim",true,function(v) Settings.AimEnabled=v end)
+local _,_syncMagToggle=makeToggle("magnet",true,function(v) Settings.BulletMagnet=v end)
+local _,_syncMultiToggle=makeToggle("multi",true,function(v) Settings.MultiTarget=v end)
+local _,_syncWallToggle=makeToggle("wallcheck",true,function(v) Settings.WallCheck=v end)
+syncAFToggle=_syncAFToggle; syncAimToggle=_syncAimToggle; syncMagnetToggle=_syncMagToggle
+syncMultiToggle=_syncMultiToggle; syncWallToggle=_syncWallToggle
+ToggleSyncRegistry['AimEnabled']={getState=function() return Settings.AimEnabled end,sync=syncAimToggle}
+ToggleSyncRegistry['AutoFire']={getState=function() return Settings.AutoFire end,sync=syncAFToggle}
+ToggleSyncRegistry['BulletMagnet']={getState=function() return Settings.BulletMagnet end,sync=syncMagnetToggle}
+ToggleSyncRegistry['MultiTarget']={getState=function() return Settings.MultiTarget end,sync=syncMultiToggle}
+ToggleSyncRegistry['WallCheck']={getState=function() return Settings.WallCheck end,sync=syncWallToggle}
+ToggleSyncRegistry['ShowESP']={getState=function() return Settings.ShowESP end,sync=nil}
+ToggleSyncRegistry['ShowFOV']={getState=function() return Settings.ShowFOV end,sync=nil}
+makeSlider("fov_radius",50,800,Settings.FOVRadius,function(v) return tostring(math.floor(v)) end,function(v) Settings.FOVRadius=math.floor(v) end)
+makeSlider("fire_delay",0.001,1,Settings.AutoFireRate,function(v) return string.format("%.3f",v) end,function(v) Settings.AutoFireRate=v end)
+makeSlider("mag_radius",2,80,Settings.MagnetRadius,function(v) return string.format("%.0f",v) end,function(v) Settings.MagnetRadius=v end)
+makeSlider("bullet_vel",1,5,Settings.BulletVelMult,function(v) return string.format("%.1fx",v) end,function(v) Settings.BulletVelMult=v end)
+
+makeSection("s_melee")
+makeToggle("melee_snap",true,function(v) Settings.MeleeSnap=v end)
+makeToggle("melee_wide",true,function(v) Settings.MeleeWide=v end)
+makeSlider("melee_speed",0.001,0.5,Settings.MeleeSpeed,function(v) return string.format("%.3fs",v) end,function(v) Settings.MeleeSpeed=v end)
+
+makeSection("s_esp")
+local _,_syncESPToggle=makeToggle("showesp",true,function(v) Settings.ShowESP=v end)
+makeToggle("showdist",false,function(v) Settings.ShowDist=v end)
+syncESPToggle=_syncESPToggle
+ToggleSyncRegistry['ShowESP']={getState=function() return Settings.ShowESP end,sync=syncESPToggle}
+local espBillboards={}
+local function refreshAllBillboardTextSize()
+    for _,obj in pairs(espBillboards) do
+        if obj and obj.Parent then
+            local d=obj:FindFirstChild("DistLbl"); if d then d.TextSize=math.max(8,ESPTextSize-3) end
+        end
+    end
+end
+makeSlider("esp_dist",100,1000,Settings.ESPMaxDist,function(v) return tostring(math.floor(v)) end,function(v) Settings.ESPMaxDist=math.floor(v) end)
+makeSlider("esp_tsize",8,22,ESPTextSize,function(v) return tostring(math.floor(v)) end,function(v) ESPTextSize=math.floor(v); refreshAllBillboardTextSize() end)
+
+local ESPHighlightColor=Color3.fromRGB(255,30,30)
+local ESPOutlineColor=Color3.fromRGB(255,255,255)
+do
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,72); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local tLbl=Instance.new("TextLabel"); tLbl.Size=UDim2.new(0.5,0,0,13); tLbl.Position=UDim2.new(0,10,0,4); tLbl.BackgroundTransparency=1; tLbl.Text=L.esp_color or "ESP COLOR"; tLbl.TextColor3=T.DIM; tLbl.TextSize=8; tLbl.Font=Enum.Font.GothamBold; tLbl.TextXAlignment=Enum.TextXAlignment.Left; tLbl.ZIndex=4; tLbl.Parent=row
+    table.insert(ThemeRefs.dimText,tLbl); registerLabel(tLbl,"esp_color")
+    local espColorPresets={{label="RED",color=Color3.fromRGB(255,30,30)},{label="GRN",color=Color3.fromRGB(80,220,60)},{label="BLU",color=Color3.fromRGB(30,120,255)},{label="YLW",color=Color3.fromRGB(255,220,30)},{label="WHT",color=Color3.fromRGB(240,240,248)},{label="PNK",color=Color3.fromRGB(255,120,160)},{label="PPL",color=Color3.fromRGB(160,80,255)},{label="ORG",color=Color3.fromRGB(255,140,0)},{label="CYN",color=Color3.fromRGB(0,220,220)},{label="RGB",color=Color3.fromRGB(255,0,0),isRGB=true}}
+    local colorBtns={}
+    for i,preset in ipairs(espColorPresets) do
+        local col=math.floor((i-1)/5); local idx=(i-1)%5
+        local btn=Instance.new("TextButton"); btn.Size=UDim2.new(0,44,0,16); btn.Position=UDim2.new(0,4+(idx*48),0,22+(col*21)); btn.BackgroundColor3=preset.color; btn.BorderSizePixel=0; btn.Text=preset.label; btn.TextColor3=Color3.fromRGB(0,0,0); btn.TextSize=7; btn.Font=Enum.Font.GothamBold; btn.ZIndex=5; btn.Parent=row
+        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,3)
+        local bS=Instance.new("UIStroke"); bS.Color=Color3.fromRGB(255,255,255); bS.Thickness=((i==1) and 2) or 0.5; bS.Transparency=((i==1) and 0) or 0.7; bS.Parent=btn
+        colorBtns[i]={btn=btn,stroke=bS,isRGB=preset.isRGB}
+        btn.MouseButton1Click:Connect(function()
+            if preset.isRGB then Settings.ESPRainbow=true
+            else Settings.ESPRainbow=false; ESPHighlightColor=preset.color
+                for _,obj in pairs(espPool) do
+                    if obj.hl and obj.hl.Parent then obj.hl.FillColor=ESPHighlightColor; obj.hl.OutlineColor=ESPOutlineColor end
+                    if obj.bb then local d=obj.bb:FindFirstChild("DistLbl"); if d then d.TextColor3=ESPHighlightColor end end
+                end
+            end
+            for j,cb in ipairs(colorBtns) do cb.stroke.Thickness=((j==i) and 2) or 0.5; cb.stroke.Transparency=((j==i) and 0) or 0.7 end
+        end)
+    end
+    if not _G.__PurserSwatchUpdaters then _G.__PurserSwatchUpdaters={} end
+    table.insert(_G.__PurserSwatchUpdaters,function()
+        for _,cb in ipairs(colorBtns) do if cb.isRGB then cb.btn.BackgroundColor3=Color3.fromHSV(_rgbTime%1,1,1) end end
+    end)
+end
+
+local ThemeCurLbl
+makeSection("s_theme")
+do
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,84); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local tLbl=Instance.new("TextLabel"); tLbl.Size=UDim2.new(0.5,0,0,13); tLbl.Position=UDim2.new(0,10,0,4); tLbl.BackgroundTransparency=1; tLbl.Text=L.theme_label; tLbl.TextColor3=T.DIM; tLbl.TextSize=8; tLbl.Font=Enum.Font.GothamBold; tLbl.TextXAlignment=Enum.TextXAlignment.Left; tLbl.ZIndex=4; tLbl.Parent=row
+    table.insert(ThemeRefs.dimText,tLbl); registerLabel(tLbl,"theme_label")
+    ThemeCurLbl=Instance.new("TextLabel"); ThemeCurLbl.Size=UDim2.new(0.48,0,0,13); ThemeCurLbl.Position=UDim2.new(0.52,0,0,4); ThemeCurLbl.BackgroundTransparency=1; ThemeCurLbl.Text=THEMES[currentThemeIdx].name; ThemeCurLbl.TextColor3=T.ACCENT; ThemeCurLbl.TextSize=8; ThemeCurLbl.Font=Enum.Font.GothamBold; ThemeCurLbl.TextXAlignment=Enum.TextXAlignment.Right; ThemeCurLbl.ZIndex=4; ThemeCurLbl.Parent=row
+    table.insert(ThemeRefs.accentText,ThemeCurLbl)
+    local swatchBtns={}; local normalCount=#THEMES-1; local rgbIdx=#THEMES
+    for i=1,normalCount do
+        local col=math.floor((i-1)/5); local idx=(i-1)%5
+        local sw=Instance.new("TextButton"); sw.Size=UDim2.new(0,44,0,16); sw.Position=UDim2.new(0,4+(idx*48),0,22+(col*21)); sw.BackgroundColor3=THEMES[i].ACCENT; sw.BorderSizePixel=0; sw.Text=""; sw.ZIndex=5; sw.Parent=row
+        Instance.new("UICorner",sw).CornerRadius=UDim.new(0,3)
+        local ss=Instance.new("UIStroke"); ss.Color=Color3.fromRGB(255,255,255); ss.Thickness=((i==currentThemeIdx) and 2) or 0.5; ss.Transparency=((i==currentThemeIdx) and 0) or 0.7; ss.Parent=sw
+        swatchBtns[i]={btn=sw,stroke=ss,isRGB=false}
+        sw.MouseButton1Click:Connect(function()
+            for j,s in ipairs(swatchBtns) do s.stroke.Thickness=((j==i) and 2) or 0.5; s.stroke.Transparency=((j==i) and 0) or 0.7 end
+            applyTheme(i); ThemeCurLbl.Text=THEMES[i].name; ThemeCurLbl.TextColor3=T.ACCENT
+        end)
+    end
+    local rgbSw=Instance.new("TextButton"); rgbSw.Size=UDim2.new(0,44,0,16); rgbSw.Position=UDim2.new(0,4,0,64); rgbSw.BackgroundColor3=Color3.fromRGB(255,0,0); rgbSw.BorderSizePixel=0; rgbSw.Text="RGB"; rgbSw.TextColor3=Color3.fromRGB(0,0,0); rgbSw.TextSize=7; rgbSw.Font=Enum.Font.GothamBold; rgbSw.ZIndex=5; rgbSw.Parent=row
+    Instance.new("UICorner",rgbSw).CornerRadius=UDim.new(0,3)
+    local rgbSs=Instance.new("UIStroke"); rgbSs.Color=Color3.fromRGB(255,255,255); rgbSs.Thickness=((rgbIdx==currentThemeIdx) and 2) or 0.5; rgbSs.Transparency=((rgbIdx==currentThemeIdx) and 0) or 0.7; rgbSs.Parent=rgbSw
+    swatchBtns[rgbIdx]={btn=rgbSw,stroke=rgbSs,isRGB=true}
+    rgbSw.MouseButton1Click:Connect(function()
+        for j,s in ipairs(swatchBtns) do s.stroke.Thickness=((j==rgbIdx) and 2) or 0.5; s.stroke.Transparency=((j==rgbIdx) and 0) or 0.7 end
+        applyTheme(rgbIdx); ThemeCurLbl.Text=THEMES[rgbIdx].name; ThemeCurLbl.TextColor3=T.ACCENT
+    end)
+    local function _updateRGBSwatch()
+        local rc=Color3.fromHSV(_rgbTime%1,1,1); rgbSw.BackgroundColor3=rc; rgbSw.TextColor3=Color3.new(0,0,0); rgbSs.Color=Color3.fromHSV((_rgbTime+0.5)%1,0.6,1)
+        if currentThemeIdx~=rgbIdx then rgbSs.Thickness=0.5; rgbSs.Transparency=0.5
+        else local pulse=1.5+(math.sin(_rgbElapsed*math.pi*1.5)*0.5); rgbSs.Thickness=pulse; rgbSs.Transparency=0 end
+    end
+    if not _G.__PurserSwatchUpdaters then _G.__PurserSwatchUpdaters={} end
+    table.insert(_G.__PurserSwatchUpdaters,_updateRGBSwatch)
+end
+
+do
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,32); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local nameLbl=Instance.new("TextLabel"); nameLbl.Size=UDim2.new(0.4,0,1,0); nameLbl.Position=UDim2.new(0,10,0,0); nameLbl.BackgroundTransparency=1; nameLbl.Text=L.lang_label; nameLbl.TextColor3=T.WHITE; nameLbl.TextSize=10; nameLbl.Font=Enum.Font.GothamBold; nameLbl.TextXAlignment=Enum.TextXAlignment.Left; nameLbl.ZIndex=4; nameLbl.Parent=row
+    registerLabel(nameLbl,"lang_label")
+    table.insert(ThemeRefs.toggleWidgets,{strip=Instance.new("Frame"),pill=Instance.new("Frame"),pillStroke=Instance.new("UIStroke"),mainLbl=nameLbl,rowStroke=rS,getState=function() return false end})
+    local LangEnBtn=Instance.new("TextButton"); LangEnBtn.Size=UDim2.new(0,46,0,20); LangEnBtn.Position=UDim2.new(1,-102,0.5,-10); LangEnBtn.BackgroundColor3=((currentLang=="EN") and T.ACCENT) or T.SUBTLE; LangEnBtn.BorderSizePixel=0; LangEnBtn.Text="EN"; LangEnBtn.TextColor3=((currentLang=="EN") and T.BG) or T.DIM; LangEnBtn.TextSize=8; LangEnBtn.Font=Enum.Font.GothamBold; LangEnBtn.ZIndex=5; LangEnBtn.Parent=row
+    Instance.new("UICorner",LangEnBtn).CornerRadius=UDim.new(0,4)
+    local LangThBtn=Instance.new("TextButton"); LangThBtn.Size=UDim2.new(0,46,0,20); LangThBtn.Position=UDim2.new(1,-50,0.5,-10); LangThBtn.BackgroundColor3=((currentLang=="TH") and T.ACCENT) or T.SUBTLE; LangThBtn.BorderSizePixel=0; LangThBtn.Text="TH"; LangThBtn.TextColor3=((currentLang=="TH") and T.BG) or T.DIM; LangThBtn.TextSize=8; LangThBtn.Font=Enum.Font.GothamBold; LangThBtn.ZIndex=5; LangThBtn.Parent=row
+    Instance.new("UICorner",LangThBtn).CornerRadius=UDim.new(0,4)
+    local function refreshLangBtns()
+        LangEnBtn.BackgroundColor3=((currentLang=="EN") and T.ACCENT) or T.SUBTLE; LangEnBtn.TextColor3=((currentLang=="EN") and T.BG) or T.DIM
+        LangThBtn.BackgroundColor3=((currentLang=="TH") and T.ACCENT) or T.SUBTLE; LangThBtn.TextColor3=((currentLang=="TH") and T.BG) or T.DIM
+    end
+    LangEnBtn.MouseButton1Click:Connect(function() applyLanguage("EN"); refreshLangBtns() end)
+    LangThBtn.MouseButton1Click:Connect(function() applyLanguage("TH"); refreshLangBtns() end)
+end
+
+makeSection("s_ui")
+makeStepperRow("ui_scale",UIPanelScale,function(v) return string.format("%.1f",v) end,function() applyUIScale(UIPanelScale-0.1); return UIPanelScale end,function() applyUIScale(UIPanelScale+0.1); return UIPanelScale end)
+makeStepperRow("font_scale",FontScale,function(v) return string.format("%.1fx",v) end,function() applyFontScale(FontScale-0.1); return FontScale end,function() applyFontScale(FontScale+0.1); return FontScale end)
+local _,_syncFOVToggle=makeToggle("showfov",false,function(v) Settings.ShowFOV=v; FOVCircle.Visible=v end)
+syncFOVToggle=_syncFOVToggle
+ToggleSyncRegistry['ShowFOV']={getState=function() return Settings.ShowFOV end,sync=syncFOVToggle}
+
+makeSection("s_keybind")
+local MOUSE_INPUT_TYPES={[Enum.UserInputType.MouseButton1]="Mouse1",[Enum.UserInputType.MouseButton2]="Mouse2",[Enum.UserInputType.MouseButton3]="Mouse3"}
+local function makeKeybindRow(labelKey,binding)
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,32); row.BackgroundColor3=T.ROW; row.BorderSizePixel=0; row.ZIndex=3; row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,5); table.insert(ThemeRefs.rows,row)
+    local rS=Instance.new("UIStroke"); rS.Color=T.BORDER; rS.Thickness=1; rS.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; rS.Parent=row; table.insert(ThemeRefs.borderStroke,rS)
+    local nameLbl=Instance.new("TextLabel"); nameLbl.Size=UDim2.new(0.6,0,1,0); nameLbl.Position=UDim2.new(0,10,0,0); nameLbl.BackgroundTransparency=1; nameLbl.Text=L[labelKey] or labelKey; nameLbl.TextColor3=T.WHITE; nameLbl.TextSize=10; nameLbl.Font=Enum.Font.GothamBold; nameLbl.TextXAlignment=Enum.TextXAlignment.Left; nameLbl.ZIndex=4; nameLbl.Parent=row
+    registerLabel(nameLbl,labelKey)
+    local keyBtn=Instance.new("TextButton"); keyBtn.Size=UDim2.new(0,56,0,20); keyBtn.Position=UDim2.new(1,-64,0.5,-10); keyBtn.BackgroundColor3=T.SUBTLE; keyBtn.BorderSizePixel=0; keyBtn.Text=bindingName(binding); keyBtn.TextColor3=T.ACCENT; keyBtn.TextSize=7; keyBtn.Font=Enum.Font.GothamBold; keyBtn.ZIndex=5; keyBtn.Parent=row
+    Instance.new("UICorner",keyBtn).CornerRadius=UDim.new(0,4)
+    local kS=Instance.new("UIStroke"); kS.Color=T.ACCENT; kS.Thickness=1; kS.Transparency=0.3; kS.Parent=keyBtn
+    table.insert(ThemeRefs.accentText,keyBtn); table.insert(ThemeRefs.accentStroke,kS); table.insert(ThemeRefs.subtleBG,keyBtn)
+    table.insert(ThemeRefs.toggleWidgets,{strip=Instance.new("Frame"),pill=Instance.new("Frame"),pillStroke=Instance.new("UIStroke"),mainLbl=nameLbl,rowStroke=rS,getState=function() return false end})
+    return row,keyBtn,kS
+end
+
+local function enterBind(btn,kS) btn.Text="..."; btn.TextColor3=T.DIM; kS.Color=T.DIM end
+local function exitBind(btn,kS,b) btn.Text=bindingName(b); btn.TextColor3=T.ACCENT; kS.Color=T.ACCENT end
+
+local _,KeyToggleBtn,KeyToggleStroke=makeKeybindRow("kb_panel",KeyBindings.Toggle)
+local _,KeyAFBtn,KeyAFStroke=makeKeybindRow("kb_af",KeyBindings.AutoFire)
+local _,KeySABtn,KeySAStroke=makeKeybindRow("kb_sa",KeyBindings.SilentAim)
+local _,KeyResetBtn,KeyResetStroke=makeKeybindRow("kb_reset",KeyBindings.Reset)
+
+KeyToggleBtn.MouseButton1Click:Connect(function() if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end; BindingToggle=true; enterBind(KeyToggleBtn,KeyToggleStroke) end)
+KeyAFBtn.MouseButton1Click:Connect(function() if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end; BindingAutoFire=true; enterBind(KeyAFBtn,KeyAFStroke) end)
+KeySABtn.MouseButton1Click:Connect(function() if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end; BindingSilentAim=true; enterBind(KeySABtn,KeySAStroke) end)
+KeyResetBtn.MouseButton1Click:Connect(function() if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end; BindingReset=true; enterBind(KeyResetBtn,KeyResetStroke) end)
+
+local function resetAllFeatures()
+    pushUndoSnapshot(Settings,ToggleSyncRegistry)
+    Settings.AimEnabled=false; Settings.AutoFire=false; Settings.BulletMagnet=false
+    Settings.MultiTarget=false; Settings.ShowFOV=false; Settings.ShowESP=false; FOVCircle.Visible=false
+    if syncAimToggle then syncAimToggle(false) end; if syncAFToggle then syncAFToggle(false) end
+    if syncMagnetToggle then syncMagnetToggle(false) end; if syncMultiToggle then syncMultiToggle(false) end
+    if syncFOVToggle then syncFOVToggle(false) end; if syncESPToggle then syncESPToggle(false) end
+end
+local function undoLastReset()
+    local snap=popUndoSnapshot(); if not snap then return end
+    for k,v in pairs(snap.Settings) do Settings[k]=v end
+    FOVCircle.Visible=Settings.ShowFOV
+    for k,entry in pairs(ToggleSyncRegistry) do
+        local prevState=snap.toggleStates[k]; if prevState~=nil and entry.sync then entry.sync(prevState) end
+    end
+    if syncWallToggle then syncWallToggle(Settings.WallCheck) end
+end
+
+UserInputService.InputBegan:Connect(function(input,gp)
+    if gp then return end
+    local isKeyboard=input.UserInputType==Enum.UserInputType.Keyboard
+    local mouseSideNm=getMouseBtnName(input.UserInputType); local isMouseSide=mouseSideNm~=nil
+    if isKeyboard and (input.KeyCode==Enum.KeyCode.Z) then
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then undoLastReset(); return end
+    end
+    if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then
+        local newBind=nil
+        if isKeyboard then
+            local prohibited={[Enum.KeyCode.LeftControl]=true,[Enum.KeyCode.RightControl]=true,[Enum.KeyCode.LeftShift]=true,[Enum.KeyCode.RightShift]=true,[Enum.KeyCode.LeftAlt]=true,[Enum.KeyCode.RightAlt]=true}
+            if not prohibited[input.KeyCode] then newBind={kind="key",value=input.KeyCode} end
+        elseif isMouseSide then newBind={kind="mouseside",value=mouseSideNm,uitype=input.UserInputType} end
+        if newBind then
+            if BindingToggle then BindingToggle=false; KeyBindings.Toggle=newBind; exitBind(KeyToggleBtn,KeyToggleStroke,newBind)
+            elseif BindingAutoFire then BindingAutoFire=false; KeyBindings.AutoFire=newBind; exitBind(KeyAFBtn,KeyAFStroke,newBind)
+            elseif BindingSilentAim then BindingSilentAim=false; KeyBindings.SilentAim=newBind; exitBind(KeySABtn,KeySAStroke,newBind)
+            elseif BindingReset then BindingReset=false; KeyBindings.Reset=newBind; exitBind(KeyResetBtn,KeyResetStroke,newBind) end
+        end
+        return
+    end
+    local function checkBind(b)
+        if b.kind=="key" and isKeyboard then return input.KeyCode==b.value
+        elseif b.kind=="mouseside" and isMouseSide then return input.UserInputType==b.uitype end
+        return false
+    end
+    if checkBind(KeyBindings.Toggle) then local vis=not Panel.Visible; Panel.Visible=vis; Glow.Visible=vis
+    elseif checkBind(KeyBindings.AutoFire) then Settings.AutoFire=not Settings.AutoFire; if syncAFToggle then syncAFToggle(Settings.AutoFire) end
+    elseif checkBind(KeyBindings.SilentAim) then Settings.AimEnabled=not Settings.AimEnabled; if syncAimToggle then syncAimToggle(Settings.AimEnabled) end
+    elseif checkBind(KeyBindings.Reset) then resetAllFeatures() end
+end)
+
+local _origBindingName=bindingName
+function bindingName(b) if b.kind=="mouseside" then return b.value end; return _origBindingName(b) end
+
+local function updateLockIcon()
+    if DragLocked then LockIconShackle.Visible=true; LockShackleStroke.Transparency=0
+    else LockIconShackle.Visible=false; LockShackleStroke.Transparency=1 end
+    lkS.Color=T.ACCENT
+end
+updateLockIcon()
+LockBtn.MouseButton1Click:Connect(function() DragLocked=not DragLocked; updateLockIcon() end)
+
+do
+    local dragging=false; local dMouse,dPos=Vector2.new(),UDim2.new()
+    Header.InputBegan:Connect(function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 then
+            if DragLocked then return end; dragging=true; dMouse=Vector2.new(input.Position.X,input.Position.Y); dPos=Glow.Position
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and not DragLocked and i.UserInputType==Enum.UserInputType.MouseMovement then
+            local d=Vector2.new(i.Position.X,i.Position.Y)-dMouse
+            Glow.Position=UDim2.new(dPos.X.Scale,dPos.X.Offset+d.X,dPos.Y.Scale,dPos.Y.Offset+d.Y)
+        end
+    end)
+end
+
+-- ── ESP system ───────────────────────────────────────────────────
+local function newBillboard(char)
+    local head=char:FindFirstChild("Head"); if not head then return nil end
+    local bb=Instance.new("BillboardGui"); bb.Name="PurserESP_BB"; bb.Size=UDim2.new(0,100,0,18); bb.StudsOffset=Vector3.new(0,3.2,0); bb.AlwaysOnTop=true; bb.ResetOnSpawn=false; bb.Adornee=head; bb.Parent=head
+    local nameLbl=Instance.new("TextLabel"); nameLbl.Name="NameLbl"; nameLbl.Size=UDim2.new(0,0,0,0); nameLbl.BackgroundTransparency=1; nameLbl.TextTransparency=1; nameLbl.TextSize=1; nameLbl.Text=""; nameLbl.Parent=bb
+    local distLbl=Instance.new("TextLabel"); distLbl.Name="DistLbl"; distLbl.Size=UDim2.new(1,0,1,0); distLbl.BackgroundTransparency=1; distLbl.TextColor3=Color3.fromRGB(200,200,200); distLbl.TextSize=math.max(8,ESPTextSize-3); distLbl.Font=Enum.Font.Gotham; distLbl.Text=""; distLbl.Parent=bb
+    table.insert(espBillboards,bb); return bb
+end
+local function newHighlight(char)
+    for _,v in ipairs(char:GetChildren()) do if v:IsA("Highlight") then v:Destroy() end end
+    local hl=Instance.new("Highlight"); hl.FillColor=ESPHighlightColor; hl.OutlineColor=ESPOutlineColor; hl.FillTransparency=0.3; hl.OutlineTransparency=0; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Adornee=char; hl.Parent=char; return hl
+end
+local function wipeESPLabels(obj)
+    if not obj then return end
+    if obj.bb then local d=obj.bb:FindFirstChild("DistLbl"); if d then d.Text="" end; pcall(function() obj.bb.Enabled=false end) end
+    if obj.hl and obj.hl.Parent then pcall(function() obj.hl.FillTransparency=1; obj.hl.OutlineTransparency=1 end) end
+end
+local function destroyESP(player)
+    local obj=espPool[player]; if not obj then return end; wipeESPLabels(obj)
+    if obj.hl and obj.hl.Parent then pcall(function() obj.hl:Destroy() end) end
+    if obj.bb and obj.bb.Parent then pcall(function() obj.bb:Destroy() end) end
+    if obj.conn then obj.conn:Disconnect() end; if obj.charConn then obj.charConn:Disconnect() end; if obj.dieConn then obj.dieConn:Disconnect() end
+    for i,bb in ipairs(espBillboards) do if bb==obj.bb then table.remove(espBillboards,i); break end end
+    espPool[player]=nil
+end
+local function createESP(player)
+    if player==LocalPlayer then return end
+    if espPool[player] then destroyESP(player) end
+    local hl,bb=nil,nil; local dieConn=nil
+    local function tryAttach()
+        local char=player.Character; if not char then return false end
+        if not char:FindFirstChild("HumanoidRootPart") then return false end
+        pcall(function() local old=char:FindFirstChild("PurserESP_BB"); if old then old:Destroy() end end)
+        hl=newHighlight(char); bb=newBillboard(char)
+        local hum=char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if dieConn then dieConn:Disconnect() end
+            dieConn=hum.Died:Connect(function() if espPool[player] then wipeESPLabels(espPool[player]) end end)
+            if espPool[player] then espPool[player].dieConn=dieConn end
+        end
+        return true
+    end
+    tryAttach()
+    local charConn=player.CharacterAdded:Connect(function()
+        task.wait(0.6)
+        if hl and hl.Parent then pcall(function() hl:Destroy() end) end
+        if bb and bb.Parent then pcall(function() bb:Destroy() end) end
+        tryAttach()
+        if espPool[player] then espPool[player].hl=hl; espPool[player].bb=bb end
+    end)
+    local conn=RunService.RenderStepped:Connect(function()
+        local char=player.Character; if not char then return end
+        local hum=char:FindFirstChildOfClass("Humanoid"); local root=char:FindFirstChild("HumanoidRootPart")
+        local lc=LocalPlayer.Character; local lr=lc and lc:FindFirstChild("HumanoidRootPart")
+        local isDead=not hum or hum.Health<=0
+        if isDead then if bb then bb.Enabled=false end; if hl and hl.Parent then hl.FillTransparency=1; hl.OutlineTransparency=1 end; return end
+        if not Settings.ShowESP then
+            if hl and hl.Parent then hl.FillTransparency=1; hl.OutlineTransparency=1 end; if bb then bb.Enabled=false end; return
+        end
+        local dist=(lr and root and (root.Position-lr.Position).Magnitude) or 9999
+        local inRange=dist<=Settings.ESPMaxDist
+        local espColor=(Settings.ESPRainbow and getRGBColor(0)) or ESPHighlightColor
+        if hl and hl.Parent then hl.FillColor=espColor; hl.OutlineColor=ESPOutlineColor; hl.FillTransparency=(inRange and 0.3) or 1; hl.OutlineTransparency=(inRange and 0) or 1 end
+        if bb then bb.Enabled=inRange; if inRange then local d=bb:FindFirstChild("DistLbl"); if d then d.TextColor3=espColor; d.Text=(Settings.ShowDist and string.format("[%.0f]",dist)) or ""; d.TextSize=math.max(8,ESPTextSize-3) end end end
+    end)
+    espPool[player]={hl=hl,bb=bb,conn=conn,charConn=charConn,dieConn=dieConn}
+end
+
+for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createESP(p) end end
+Players.PlayerAdded:Connect(function(p) if p~=LocalPlayer then createESP(p) end end)
+Players.PlayerRemoving:Connect(function(p) local obj=espPool[p]; if obj then wipeESPLabels(obj) end; task.defer(function() destroyESP(p) end) end)
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() Camera=workspace.CurrentCamera end)
+RunService.RenderStepped:Connect(function() FOVCircle.Position=Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2); FOVCircle.Radius=Settings.FOVRadius end)
+
+-- ── aimbot core ──────────────────────────────────────────────────
+local BoneWeights={{name="Head",weight=50},{name="UpperTorso",weight=30},{name="Torso",weight=30},{name="LowerTorso",weight=20},{name="HumanoidRootPart",weight=10}}
+local function RaycastVisible(char,partName)
+    local lc=LocalPlayer.Character; if not lc or not char then return false end
+    local part=char:FindFirstChild(partName); if not part then return false end
+    local camPos=Camera.CFrame.Position; local rp=RaycastParams.new()
+    rp.FilterType=Enum.RaycastFilterType.Exclude; rp.FilterDescendantsInstances={lc,char}; rp.IgnoreWater=true
+    local res=workspace:Raycast(camPos,part.Position-camPos,rp); return res==nil
+end
+local function GetHeadTarget(char)
+    if not Settings.WallCheck then return char:FindFirstChild("Head") end
+    if RaycastVisible(char,"Head") then return char:FindFirstChild("Head") end; return nil
+end
+local function GetVisibleBonesWeighted(char)
+    local lc=LocalPlayer.Character; if not lc or not char then return {} end
+    local visible={}
+    for _,entry in ipairs(BoneWeights) do
+        local part=char:FindFirstChild(entry.name)
+        if part then
+            if not Settings.WallCheck then table.insert(visible,{part=part,weight=entry.weight})
+            elseif RaycastVisible(char,entry.name) then table.insert(visible,{part=part,weight=entry.weight}) end
+        end
+    end
+    return visible
+end
+local function WeightedRandomBone(visibleBones)
+    if #visibleBones==0 then return nil end
+    local total=0; for _,b in ipairs(visibleBones) do total=total+b.weight end
+    local roll=math.random()*total; local cum=0
+    for _,b in ipairs(visibleBones) do cum=cum+b.weight; if roll<=cum then return b.part end end
+    return visibleBones[#visibleBones].part
+end
+local function HasFlagOnHead(char)
+    local head=char:FindFirstChild("Head"); if not head then return false end
+    for _,acc in ipairs(char:GetChildren()) do
+        if acc:IsA("Accessory") or acc:IsA("Hat") then
+            local handle=acc:FindFirstChild("Handle"); if handle then local d=(handle.Position-head.Position).Magnitude; if d<4.5 then return true end end
+        end
+        if acc:IsA("BillboardGui") then return true end
+    end
+    return false
+end
+local function GetScreenCenter() return Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2) end
+local function IsInFOV(head)
+    local center=GetScreenCenter(); local sp,on=Camera:WorldToViewportPoint(head.Position)
+    if not on then return false,0 end
+    local d=(Vector2.new(sp.X,sp.Y)-center).Magnitude; return d<=Settings.FOVRadius,d
+end
+local function ResolveTargetPart(char)
+    local hasFlag=HasFlagOnHead(char); local fm=Settings.FireMode
+    if fm==1 or hasFlag then return GetHeadTarget(char)
+    else return WeightedRandomBone(GetVisibleBonesWeighted(char)) end
+end
+local function GetBestTarget()
+    local best,bestD=nil,math.huge
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player==LocalPlayer then continue end
+        local char=player.Character; if not char then continue end
+        local hum=char:FindFirstChildOfClass("Humanoid"); if not hum or hum.Health<=0 then continue end
+        local head=char:FindFirstChild("Head"); if not head then continue end
+        local inFOV,d=IsInFOV(head); if not inFOV or d>=bestD then continue end
+        local tp=ResolveTargetPart(char); if not tp then continue end
+        best={Player=player,Char=char,TargetPart=tp}; bestD=d
+    end
+    return best
+end
+local function GetAllTargetsInFOV()
+    local targets={}
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player==LocalPlayer then continue end
+        local char=player.Character; if not char then continue end
+        local hum=char:FindFirstChildOfClass("Humanoid"); if not hum or hum.Health<=0 then continue end
+        local head=char:FindFirstChild("Head"); if not head then continue end
+        local inFOV,d=IsInFOV(head); if not inFOV then continue end
+        local tp=ResolveTargetPart(char); if not tp then continue end
+        table.insert(targets,{Player=player,Char=char,TargetPart=tp,dist=d})
+    end
+    return targets
+end
+local function GetMagnetTarget()
+    local lc=LocalPlayer.Character; if not lc then return nil end
+    local camCF=Camera.CFrame; local origin=camCF.Position; local dir=camCF.LookVector*2000
+    local bestBone,bestDist=nil,Settings.MagnetRadius
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player==LocalPlayer then continue end
+        local char=player.Character; if not char then continue end
+        local hum=char:FindFirstChildOfClass("Humanoid"); if not hum or hum.Health<=0 then continue end
+        for _,entry in ipairs(BoneWeights) do
+            local part=char:FindFirstChild(entry.name); if not part then continue end
+            local bonePos=part.Position
+            local t=math.clamp((bonePos-origin):Dot(dir)/dir:Dot(dir),0,1)
+            local closest=origin+(dir*t); local distToRay=(bonePos-closest).Magnitude
+            if distToRay<bestDist then bestDist=distToRay; bestBone=bonePos end
+        end
+    end
+    return bestBone
+end
+
+local SilentTarget=nil
+local function tryPatchVelocity()
+    local RS=game:GetService("ReplicatedStorage")
+    for _,desc in ipairs(RS:GetDescendants()) do
+        if desc:IsA("NumberValue") or desc:IsA("IntValue") then
+            local nm=desc.Name:lower()
+            if nm:find("speed") or nm:find("velocity") or nm:find("vel") then
+                pcall(function() desc.Value=desc.Value*Settings.BulletVelMult end)
+            end
+        end
+    end
+end
+task.spawn(function() task.wait(3); tryPatchVelocity() end)
+
+local function trySilentAimHook()
+    local ok,CSC=pcall(function()
+        local RS=game:GetService("ReplicatedStorage")
+        return require(RS.Client.CombatController.ClientComponent.ClientShootableComponent)
+    end)
+    if not ok or not CSC then return false end
+    local ov; ov=hookfunction(CSC.LocalShoot,function(self,...)
+        if Settings.AimEnabled or Settings.BulletMagnet then
+            if Settings.BulletMagnet then
+                local magnetPos=GetMagnetTarget()
+                if magnetPos then SilentTarget={Position=magnetPos}
+                elseif Settings.AimEnabled then local enemy=GetBestTarget(); if enemy then SilentTarget={Position=enemy.TargetPart.Position} end end
+            elseif Settings.AimEnabled then local enemy=GetBestTarget(); if enemy then SilentTarget={Position=enemy.TargetPart.Position} end end
+        end
+        local r=ov(self,...); SilentTarget=nil; return r
+    end)
+    for i=1,25 do
+        local uok,val=pcall(debug.getupvalue,ov,i)
+        if uok and type(val)=="function" then
+            pcall(function()
+                local vv; vv=hookfunction(val,function(...)
+                    if SilentTarget and (Settings.AimEnabled or Settings.BulletMagnet) then
+                        local r1=vv(...)
+                        if typeof(r1)=="CFrame" then return CFrame.lookAt(r1.Position,SilentTarget.Position) end
+                        if typeof(r1)=="Vector3" then return SilentTarget.Position end
+                        return r1
+                    end
+                    local r1=vv(...)
+                    if typeof(r1)=="Vector3" and r1.Magnitude>10 then return r1*Settings.BulletVelMult end
+                    return r1
+                end)
+            end)
+        end
+    end
+    return true
+end
+if not trySilentAimHook() then
+    task.spawn(function() for _=1,12 do task.wait(2); if trySilentAimHook() then break end end end)
+end
+
+local lastMeleeTime=0
+local function hookMelee()
+    local RS=game:GetService("ReplicatedStorage"); local meleeRemote=nil
+    for _,desc in ipairs(RS:GetDescendants()) do
+        if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+            local nm=desc.Name:lower()
+            if nm:find("melee") or nm:find("knife") or nm:find("slash") or nm:find("stab") then meleeRemote=desc; break end
+        end
+    end
+    if meleeRemote and meleeRemote:IsA("RemoteEvent") then
+        local orig=hookfunction(meleeRemote.FireServer,function(self,...)
+            local now=tick(); if now-lastMeleeTime<Settings.MeleeSpeed then return end; lastMeleeTime=now
+            if Settings.MeleeSnap then local enemy=GetBestTarget(); if enemy then local head=enemy.Char:FindFirstChild("Head"); if head then return orig(self,head.Position,...) end end end
+            return orig(self,...)
+        end)
+        return true
+    end
+    local function watchTool(tool)
+        if not tool then return end; local handle=tool:FindFirstChild("Handle"); if not handle then return end
+        local origSize=handle.Size
+        if Settings.MeleeWide then pcall(function() handle.Size=Vector3.new(origSize.X*2.5,origSize.Y*2.5,origSize.Z*1.5) end) end
+        handle.Touched:Connect(function(hit)
+            local now=tick(); if now-lastMeleeTime<Settings.MeleeSpeed then return end; lastMeleeTime=now
+            if not Settings.MeleeSnap then return end
+            local hitChar=hit:FindFirstAncestorOfClass("Model"); if not hitChar then return end
+            local hum=hitChar:FindFirstChildOfClass("Humanoid"); if not hum or hum.Health<=0 then return end
+            if hitChar==LocalPlayer.Character then return end
+            local head=hitChar:FindFirstChild("Head"); if not head then return end
+            local origPos=handle.CFrame; pcall(function() handle.CFrame=CFrame.new(head.Position) end)
+            task.wait(0.03); pcall(function() handle.CFrame=origPos end)
+        end)
+    end
+    local char=LocalPlayer.Character
+    if char then for _,item in ipairs(char:GetChildren()) do if item:IsA("Tool") then watchTool(item) end end end
+    LocalPlayer.CharacterAdded:Connect(function(newChar)
+        newChar.ChildAdded:Connect(function(item) if item:IsA("Tool") then task.wait(0.2); watchTool(item) end end)
+        for _,item in ipairs(newChar:GetChildren()) do if item:IsA("Tool") then task.wait(0.2); watchTool(item) end end
+    end)
+    return true
+end
+task.spawn(function() task.wait(2.5); hookMelee() end)
+
+local lastFireTime=0; local isFiring=false
+local function doMouseClick()
+    if mouse1press and mouse1release then mouse1press(); task.wait(0.03); mouse1release(); return true end
+    if VirtualInput then
+        local vp=Camera.ViewportSize
+        pcall(function() VirtualInput:SendMouseButtonEvent(vp.X/2,vp.Y/2,0,true,game,1) end)
+        task.wait(0.03)
+        pcall(function() VirtualInput:SendMouseButtonEvent(vp.X/2,vp.Y/2,0,false,game,1) end)
+        return true
+    end
+    return false
+end
+
+RunService.Heartbeat:Connect(function()
+    if not Settings.AutoFire then isFiring=false; return end
+    local now=tick(); if now-lastFireTime<Settings.AutoFireRate then return end
+    if isFiring then return end
+    if Settings.MultiTarget then
+        local targets=GetAllTargetsInFOV(); if #targets==0 then return end
+        isFiring=true
+        task.spawn(function()
+            for _,t in ipairs(targets) do
+                if not Settings.AutoFire then break end
+                local head=t.Char and t.Char:FindFirstChild("Head")
+                if head then local inFOV,_=IsInFOV(head); if not inFOV then continue end end
+                if Settings.AimEnabled or Settings.BulletMagnet then SilentTarget={Position=t.TargetPart.Position} end
+                doMouseClick(); SilentTarget=nil; task.wait(Settings.AutoFireRate*0.5)
+            end
+            isFiring=false
+        end)
+    else
+        local enemy=GetBestTarget(); if not enemy then return end
+        if Settings.AimEnabled then SilentTarget={Position=enemy.TargetPart.Position} end
+        isFiring=true
+        task.spawn(function()
+            local head=enemy.Char and enemy.Char:FindFirstChild("Head")
+            if head then local inFOV,_=IsInFOV(head); if not inFOV then SilentTarget=nil; isFiring=false; return end end
+            doMouseClick(); SilentTarget=nil; isFiring=false
+        end)
+    end
+    lastFireTime=now
+end)
+
+-- ── show panel ───────────────────────────────────────────────────
+Panel.Visible=true; Glow.Visible=true
